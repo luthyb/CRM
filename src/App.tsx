@@ -5,6 +5,8 @@ type Prospect = {
   company: string
   owner: string
   revenue: number
+  clientValue?: number
+  weeklyMediaInvestment?: number
   sector: string
   content: boolean
   media: boolean
@@ -49,6 +51,15 @@ type UserProfile = {
 type UserAccount = UserProfile & { id: number; password: string }
 type AuthMode = 'login' | 'register'
 type ReportKind = 'companies' | 'leads'
+type CompanyChange = {
+  id: number
+  companyId: number
+  company: string
+  field: string
+  previousValue: string
+  newValue: string
+  changedAt: string
+}
 type NavPage = 'overview' | 'companies' | 'leads' | 'pipeline' | 'followups' | 'reports' | 'settings'
 
 const pageInfo: Record<NavPage, { label: string; group: string; description: string }> = {
@@ -69,7 +80,7 @@ const initialProspects: Prospect[] = [
   { id: 5, company: 'Vitta Pet', owner: 'Carolina Freire', revenue: 410000, sector: 'Pet', content: false, media: false, createdAt: '2026-09-12' },
 ]
 
-const emptyForm: ProspectForm = { company: '', owner: '', revenue: 0, sector: '', content: false, media: false }
+const emptyForm: ProspectForm = { company: '', owner: '', revenue: 0, clientValue: 0, weeklyMediaInvestment: 0, sector: '', content: false, media: false }
 const emptyLeadForm: LeadForm = { company: '', email: '', phone: '', sector: '', location: '', source: '', owner: '', nextContact: '', notes: '' }
 const defaultProfile: UserProfile = { name: 'Lucas Silva', role: 'Administrador', email: '', status: 'Disponível', timezone: 'Brasília (GMT-3)', photo: '' }
 
@@ -78,7 +89,7 @@ const initials = (name: string) => name.split(' ').map((part) => part[0]).slice(
 
 function AuthScreen({ mode, name, email, password, error, message, hasUsers, onModeChange, onSubmit, onNameChange, onEmailChange, onPasswordChange }: { mode: AuthMode; name: string; email: string; password: string; error: string; message: string; hasUsers: boolean; onModeChange: (mode: AuthMode) => void; onSubmit: (event: FormEvent) => void; onNameChange: (value: string) => void; onEmailChange: (value: string) => void; onPasswordChange: (value: string) => void }) {
   const isRegister = mode === 'register'
-  return <main className="auth-shell"><section className="auth-card"><div className="brand auth-brand"><span className="brand-mark">C</span><span>clareza<span className="brand-dot">.</span></span></div><p className="eyebrow">WORKSPACE PRINCIPAL</p><h1>{isRegister ? 'Crie sua conta' : 'Bem-vindo de volta'}</h1><p className="auth-subtitle">{isRegister ? 'Cadastre seu acesso para começar a organizar sua operação.' : 'Entre para acessar seu CRM e continuar sua operação.'}</p><form onSubmit={onSubmit}>{isRegister && <label>Nome completo<input required value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="Ex.: Lucas Silva" /></label>}<label>E-mail<input required type="email" value={email} onChange={(event) => onEmailChange(event.target.value)} placeholder="voce@empresa.com" /></label><label>Senha<input required type="password" minLength={6} value={password} onChange={(event) => onPasswordChange(event.target.value)} placeholder="Mínimo de 6 caracteres" /></label>{message && <p className="auth-message">{message}</p>}{error && <p className="auth-error">{error}</p>}<button className="primary-button auth-submit" type="submit">{isRegister ? 'Criar conta' : 'Entrar'}</button></form><button className="auth-switch" type="button" onClick={() => onModeChange(isRegister ? 'login' : 'register')}>{isRegister ? 'Já tenho uma conta' : hasUsers ? 'Criar uma nova conta' : 'Ainda não tenho uma conta'}</button><small className="auth-note">Protótipo local: os dados de acesso ficam armazenados apenas neste navegador.</small></section></main>
+  return <main className="auth-shell"><section className="auth-card"><div className="brand auth-brand"><span className="brand-mark">N</span><span>NewType <span className="brand-dot">CRM</span></span></div><p className="eyebrow">WORKSPACE PRINCIPAL</p><h1>{isRegister ? 'Crie sua conta' : 'Bem-vindo de volta'}</h1><p className="auth-subtitle">{isRegister ? 'Cadastre seu acesso para começar a organizar sua operação.' : 'Entre para acessar seu CRM e continuar sua operação.'}</p><form onSubmit={onSubmit}>{isRegister && <label>Nome completo<input required value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="Ex.: Lucas Silva" /></label>}<label>E-mail<input required type="email" value={email} onChange={(event) => onEmailChange(event.target.value)} placeholder="voce@empresa.com" /></label><label>Senha<input required type="password" minLength={6} value={password} onChange={(event) => onPasswordChange(event.target.value)} placeholder="Mínimo de 6 caracteres" /></label>{message && <p className="auth-message">{message}</p>}{error && <p className="auth-error">{error}</p>}<button className="primary-button auth-submit" type="submit">{isRegister ? 'Criar conta' : 'Entrar'}</button></form><button className="auth-switch" type="button" onClick={() => onModeChange(isRegister ? 'login' : 'register')}>{isRegister ? 'Já tenho uma conta' : hasUsers ? 'Criar uma nova conta' : 'Ainda não tenho uma conta'}</button><small className="auth-note">Protótipo local: os dados de acesso ficam armazenados apenas neste navegador.</small></section></main>
 }
 
 function App() {
@@ -110,6 +121,7 @@ function App() {
   })
   const [profileDraft, setProfileDraft] = useState<UserProfile>(profile)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [workspaceName, setWorkspaceName] = useState(() => localStorage.getItem('newtype-workspace-name') || 'Agência Aurora')
   const [users, setUsers] = useState<UserAccount[]>(() => {
     const saved = localStorage.getItem('clareza-users')
     return saved ? JSON.parse(saved) : []
@@ -125,11 +137,40 @@ function App() {
   const [authError, setAuthError] = useState('')
   const [authMessage, setAuthMessage] = useState('')
   const [newUser, setNewUser] = useState({ name: '', email: '', role: 'Colaborador', password: '' })
+  const [newUserPhoto, setNewUserPhoto] = useState('')
+  const [financialCompanyId, setFinancialCompanyId] = useState<number | null>(null)
+  const [financialValue, setFinancialValue] = useState(0)
+  const [financialMedia, setFinancialMedia] = useState(0)
+  const [companyChanges, setCompanyChanges] = useState<CompanyChange[]>(() => {
+    const saved = localStorage.getItem('newtype-company-changes')
+    return saved ? JSON.parse(saved) : []
+  })
+  const [financeSavedAt, setFinanceSavedAt] = useState<number | null>(null)
   const [accountPassword, setAccountPassword] = useState('')
 
   const saveProspects = (next: Prospect[]) => {
     setProspects(next)
     localStorage.setItem('clareza-prospects', JSON.stringify(next))
+  }
+
+  const saveCompanyChanges = (next: CompanyChange[]) => {
+    setCompanyChanges(next)
+    localStorage.setItem('newtype-company-changes', JSON.stringify(next))
+  }
+
+  const recordCompanyChanges = (before: Prospect, after: Prospect) => {
+    const fields: Array<[keyof Prospect, string, (value: unknown) => string]> = [
+      ['company', 'Nome da empresa', (value) => String(value)],
+      ['owner', 'Dono', (value) => String(value)],
+      ['revenue', 'Faturamento anual', (value) => formatCurrency(Number(value) || 0)],
+      ['clientValue', 'Valor que paga', (value) => formatCurrency(Number(value) || 0)],
+      ['weeklyMediaInvestment', 'Mídia semanal', (value) => formatCurrency(Number(value) || 0)],
+      ['sector', 'Nicho / setor', (value) => String(value)],
+      ['content', 'Produz conteúdo?', (value) => value ? 'Sim' : 'Não'],
+      ['media', 'Compra mídia?', (value) => value ? 'Sim' : 'Não'],
+    ]
+    const changes = fields.filter(([field]) => before[field] !== after[field]).map(([field, label, format]) => ({ id: Date.now() + Math.random(), companyId: after.id, company: after.company, field: label, previousValue: format(before[field]), newValue: format(after[field]), changedAt: new Date().toISOString() }))
+    if (changes.length > 0) saveCompanyChanges([...changes, ...companyChanges])
   }
 
   const exportCsv = () => {
@@ -154,8 +195,8 @@ function App() {
     if (kind === 'companies') {
       return {
         title: 'Relatório de empresas',
-        headers: ['Nome da Empresa', 'Nome do Dono', 'Faturamento anual', 'Nicho/Setor', 'Produz conteúdo?', 'Compra mídia?'],
-        rows: prospects.map((prospect) => [prospect.company, prospect.owner, formatCurrency(prospect.revenue), prospect.sector, prospect.content ? 'Sim' : 'Não', prospect.media ? 'Sim' : 'Não']),
+        headers: ['Nome da Empresa', 'Nome do Dono', 'Faturamento anual', 'Valor pago', 'Mídia semanal', 'Nicho/Setor', 'Produz conteúdo?', 'Compra mídia?'],
+        rows: prospects.map((prospect) => [prospect.company, prospect.owner, formatCurrency(prospect.revenue), formatCurrency(prospect.clientValue || 0), formatCurrency(prospect.weeklyMediaInvestment || 0), prospect.sector, prospect.content ? 'Sim' : 'Não', prospect.media ? 'Sim' : 'Não']),
       }
     }
     return {
@@ -197,6 +238,47 @@ function App() {
     popup.print()
   }
 
+  const companyReportData = (company: Prospect) => {
+    const changes = companyChanges.filter((change) => change.companyId === company.id)
+    return {
+      title: `Relatório - ${company.company}`,
+      headers: ['Empresa', 'Dono', 'Faturamento anual', 'Valor pago', 'Mídia semanal', 'Nicho/Setor', 'Conteúdo', 'Compra mídia'],
+      rows: [[company.company, company.owner, formatCurrency(company.revenue), formatCurrency(company.clientValue || 0), formatCurrency(company.weeklyMediaInvestment || 0), company.sector, company.content ? 'Sim' : 'Não', company.media ? 'Sim' : 'Não']],
+      changes,
+    }
+  }
+
+  const downloadCompanyReport = (company: Prospect, format: 'csv' | 'excel' | 'pdf') => {
+    const report = companyReportData(company)
+    const logRows = report.changes.map((change) => [change.field, change.previousValue, change.newValue, new Intl.DateTimeFormat('pt-BR').format(new Date(change.changedAt))])
+    if (format === 'csv') {
+      const rows = [report.headers, ...report.rows, [], ['Histórico de alterações', 'Valor anterior', 'Valor novo', 'Data'], ...logRows]
+      const csv = rows.map((row) => row.map((value) => `"${value.replace(/"/g, '""')}"`).join(';')).join('\n')
+      const link = document.createElement('a')
+      link.href = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' }))
+      link.download = `relatorio-${company.company.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.csv`
+      link.click()
+      URL.revokeObjectURL(link.href)
+      return
+    }
+    const cells = (row: string[]) => row.map((value) => `<td>${value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td>`).join('')
+    const tables = `<h2>Dados atuais</h2><table><thead><tr>${cells(report.headers)}</tr></thead><tbody>${report.rows.map((row) => `<tr>${cells(row)}</tr>`).join('')}</tbody></table><h2>Histórico de alterações</h2><table><thead><tr>${cells(['Campo', 'Valor anterior', 'Valor novo', 'Data'])}</tr></thead><tbody>${logRows.map((row) => `<tr>${cells(row)}</tr>`).join('')}</tbody></table>`
+    if (format === 'excel') {
+      const link = document.createElement('a')
+      link.href = URL.createObjectURL(new Blob([`<html><head><meta charset="utf-8"></head><body>${tables}</body></html>`], { type: 'application/vnd.ms-excel' }))
+      link.download = `relatorio-${company.company.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.xls`
+      link.click()
+      URL.revokeObjectURL(link.href)
+      return
+    }
+    const popup = window.open('', '_blank', 'width=1100,height=800')
+    if (!popup) return
+    popup.document.write(`<html><head><title>${report.title}</title><style>body{font-family:Arial,sans-serif;color:#243331;padding:28px}h1{font-size:22px}h2{font-size:15px;margin-top:28px}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #dce5dc;padding:8px;text-align:left}th{background:#edf3ed}</style></head><body><h1>${report.title}</h1>${tables}</body></html>`)
+    popup.document.close()
+    popup.focus()
+    popup.print()
+  }
+
   const sectors = [...new Set(prospects.map((prospect) => prospect.sector))].sort()
   const filteredProspects = useMemo(() => prospects.filter((prospect) => {
     const searchable = `${prospect.company} ${prospect.owner} ${prospect.sector}`.toLowerCase()
@@ -216,7 +298,7 @@ function App() {
 
   const openEdit = (prospect: Prospect) => {
     setEditingId(prospect.id)
-    setForm({ company: prospect.company, owner: prospect.owner, revenue: prospect.revenue, sector: prospect.sector, content: prospect.content, media: prospect.media })
+    setForm({ company: prospect.company, owner: prospect.owner, revenue: prospect.revenue, clientValue: prospect.clientValue || 0, weeklyMediaInvestment: prospect.weeklyMediaInvestment || 0, sector: prospect.sector, content: prospect.content, media: prospect.media })
     setConfirmDelete(false)
     setDrawerOpen(true)
   }
@@ -284,6 +366,14 @@ function App() {
     reader.readAsDataURL(file)
   }
 
+  const handleNewUserPhoto = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => setNewUserPhoto(String(reader.result))
+    reader.readAsDataURL(file)
+  }
+
   const saveUsers = (next: UserAccount[]) => {
     setUsers(next)
     localStorage.setItem('clareza-users', JSON.stringify(next))
@@ -341,8 +431,17 @@ function App() {
     const email = newUser.email.trim().toLowerCase()
     if (!newUser.name.trim() || !email || !newUser.password) return
     if (users.some((user) => user.email.toLowerCase() === email)) return
-    saveUsers([...users, { id: Date.now(), name: newUser.name.trim(), role: newUser.role, email, password: newUser.password, status: 'Disponível', timezone: 'Brasília (GMT-3)', photo: '' }])
+    saveUsers([...users, { id: Date.now(), name: newUser.name.trim(), role: newUser.role, email, password: newUser.password, status: 'Disponível', timezone: 'Brasília (GMT-3)', photo: newUserPhoto }])
     setNewUser({ name: '', email: '', role: 'Colaborador', password: '' })
+    setNewUserPhoto('')
+  }
+
+  const deleteUser = (userId: number) => {
+    const currentUser = users.find((user) => user.id === sessionUserId)
+    const user = users.find((item) => item.id === userId)
+    if (!currentUser || !user || currentUser.email.toLowerCase() !== 'lucasthyagootk@gmail.com' || user.id === sessionUserId) return
+    if (!window.confirm(`Excluir o usuário ${user.name}?`)) return
+    saveUsers(users.filter((item) => item.id !== userId))
   }
 
   const updateAccount = (event: FormEvent) => {
@@ -356,17 +455,48 @@ function App() {
     setAccountPassword('')
   }
 
+  const saveWorkspaceName = (event: FormEvent) => {
+    event.preventDefault()
+    const nextName = workspaceName.trim() || 'Agência Aurora'
+    setWorkspaceName(nextName)
+    localStorage.setItem('newtype-workspace-name', nextName)
+  }
+
+  const saveCompanyFinance = (event: FormEvent) => {
+    event.preventDefault()
+    if (!financialCompanyId) return
+    const current = prospects.find((prospect) => prospect.id === financialCompanyId)
+    const updated = prospects.map((prospect) => prospect.id === financialCompanyId ? { ...prospect, clientValue: financialValue, weeklyMediaInvestment: financialMedia } : prospect)
+    saveProspects(updated)
+    const nextCompany = updated.find((prospect) => prospect.id === financialCompanyId)
+    if (current && nextCompany) recordCompanyChanges(current, nextCompany)
+    setFinanceSavedAt(Date.now())
+  }
+
+  const selectFinancialCompany = (id: number) => {
+    const prospect = prospects.find((item) => item.id === id)
+    setFinancialCompanyId(id)
+    setFinancialValue(prospect?.clientValue || 0)
+    setFinancialMedia(prospect?.weeklyMediaInvestment || 0)
+  }
+
   const visibleLeads = leads.filter((lead) => `${lead.company} ${lead.email} ${lead.phone} ${lead.sector} ${lead.location}`.toLowerCase().includes(leadQuery.toLowerCase()))
   const today = new Date().toISOString().slice(0, 10)
   const dueLeads = leads.filter((lead) => lead.nextContact && lead.nextContact <= today)
   const notifications = dueLeads.map((lead) => ({ id: lead.id, title: `Contatar ${lead.company}`, detail: lead.nextContact === today ? 'Contato agendado para hoje' : 'Contato atrasado' }))
   const pipelineLeads = leads.filter((lead) => lead.nextContact)
+  const selectedFinancialCompany = prospects.find((prospect) => prospect.id === financialCompanyId)
+  const selectedCompanyChanges = companyChanges.filter((change) => change.companyId === financialCompanyId)
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
     if (!form.company.trim() || !form.owner.trim() || !form.sector.trim()) return
     if (editingId) {
-      saveProspects(prospects.map((prospect) => prospect.id === editingId ? { ...prospect, ...form } : prospect))
+      const current = prospects.find((prospect) => prospect.id === editingId)
+      const updated = prospects.map((prospect) => prospect.id === editingId ? { ...prospect, ...form } : prospect)
+      saveProspects(updated)
+      const nextCompany = updated.find((prospect) => prospect.id === editingId)
+      if (current && nextCompany) recordCompanyChanges(current, nextCompany)
     } else {
       saveProspects([{ ...form, id: Date.now(), createdAt: new Date().toISOString() }, ...prospects])
     }
@@ -390,8 +520,8 @@ function App() {
       {editingId && drawerOpen && <button className="drawer-delete-button" type="button" onClick={() => setConfirmDelete(true)}>Excluir empresa</button>}
       {confirmDelete && editingId && <div className="confirm-backdrop" role="presentation"><div className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-title"><div className="confirm-icon">!</div><h2 id="delete-title">Excluir empresa?</h2><p>Essa ação removerá <strong>{form.company}</strong> da sua base de empresas.</p><div className="confirm-actions"><button type="button" className="secondary-button" onClick={() => setConfirmDelete(false)}>Cancelar</button><button type="button" className="danger-button" onClick={deleteProspect}>Excluir empresa</button></div></div></div>}
       <aside className="sidebar">
-        <div className="brand"><span className="brand-mark">C</span><span>clareza<span className="brand-dot">.</span></span></div>
-        <div className="workspace-switcher"><span className="workspace-avatar">AG</span><span><strong>Agência Aurora</strong><small>Workspace principal</small></span><span className="chevron">⌄</span></div>
+        <div className="brand"><span className="brand-mark">N</span><span>NewType <span className="brand-dot">CRM</span></span></div>
+        <div className="workspace-switcher"><span className="workspace-avatar">{initials(workspaceName)}</span><span><strong>{workspaceName}</strong><small>Workspace principal</small></span><span className="chevron">⌄</span></div>
         <nav className="main-nav" aria-label="Navegação principal">
           <p className="nav-label">Operação</p>
           <button className={`nav-item ${activePage === 'overview' ? 'active' : ''}`} onClick={() => navigateTo('overview')} aria-current={activePage === 'overview' ? 'page' : undefined}><span>◈</span> Visão geral</button>
@@ -444,7 +574,9 @@ function App() {
           </section> : activePage === 'pipeline' ? <section className="pipeline-page"><div className="pipeline-heading"><div><p className="eyebrow">OPERAÇÃO</p><h1>Pipeline</h1><p className="subtitle">Organize as próximas ações para transformar leads em oportunidades.</p></div><div className="pipeline-count"><strong>{pipelineLeads.length}</strong><span>ações cadastradas</span></div></div><div className="pipeline-list"><div className="pipeline-list-header"><div><h2>Próximas ações</h2><p>Empresas com contato previsto ou em acompanhamento.</p></div></div>{pipelineLeads.length > 0 ? pipelineLeads.map((lead) => <article className="pipeline-item" key={lead.id}><div className="pipeline-company"><span className="company-avatar">{initials(lead.company)}</span><div><h3>{lead.company}</h3><p>{lead.company}</p></div></div><div className="pipeline-contact"><small>CONTATO</small><strong>{lead.email}</strong><span>{lead.phone}</span></div><div className="pipeline-action"><small>AÇÃO</small><strong>{lead.notes || 'Realizar contato de qualificação'}</strong></div><div className="pipeline-owner"><small>RESPONSÁVEL</small><strong>{lead.owner || 'Não definido'}</strong></div><div className="pipeline-date"><small>DATA</small><strong className={lead.nextContact < today ? 'overdue' : ''}>{new Intl.DateTimeFormat('pt-BR').format(new Date(`${lead.nextContact}T12:00:00`))}</strong><span>{lead.nextContact < today ? 'Atrasado' : lead.nextContact === today ? 'Hoje' : 'Agendado'}</span></div><button className="pipeline-done" type="button" onClick={() => completePipelineAction(lead)}>Feito</button></article>) : <div className="empty-state"><strong>Nenhuma ação no pipeline</strong><span>Cadastre um próximo contato em Leads para acompanhar uma oportunidade aqui.</span></div>}</div></section> : activePage === 'followups' ? <section className="followups-page"><div className="followups-heading"><div><p className="eyebrow">OPERAÇÃO</p><h1>Follow-ups</h1><p className="subtitle">Configure quando cada contato deverá acontecer novamente.</p></div><div className="pipeline-count"><strong>{followUps.length}</strong><span>ações concluídas</span></div></div><div className="followup-list">{followUps.length > 0 ? followUps.map((followUp) => <article className="followup-item" key={followUp.id}><div className="pipeline-company"><span className="company-avatar">{initials(followUp.company)}</span><div><h3>{followUp.company}</h3><p>{followUp.email} <span>•</span> {followUp.phone}</p></div></div><div className="followup-action"><small>AÇÃO CONCLUÍDA</small><strong>{followUp.action}</strong><span>Responsável: {followUp.owner || 'Não definido'}</span></div><label className="followup-date"><small>PRÓXIMO CONTATO</small><input type="date" value={followUp.nextContact} onChange={(event) => scheduleFollowUp(followUp.id, event.target.value)} /><span>{followUp.nextContact ? 'Agendado' : 'Defina uma data'}</span></label></article>) : <div className="empty-state"><strong>Nenhum follow-up pendente</strong><span>Conclua uma ação no Pipeline para configurá-la aqui.</span></div>}</div></section> : <section className="placeholder-page"><p className="eyebrow">{currentPage.group.toUpperCase()}</p><div className="placeholder-icon">{activePage === 'reports' ? '▦' : '⚙'}</div><h1>{currentPage.label}</h1><p>{currentPage.description}</p><span>Esta área está pronta para receber os próximos recursos.</span></section>}
         </div>
         {activePage === 'reports' && <section className="report-panel"><div className="report-heading"><div><p className="eyebrow">GESTÃO</p><h1>Relatórios</h1><p className="subtitle">Exporte os dados do CRM no formato que precisar.</p></div></div><div className="report-cards"><article className="report-card"><div className="report-card-icon">◎</div><div><h2>Empresas</h2><p>Dados cadastrais, faturamento, nicho e qualificação.</p></div><div className="report-actions"><button type="button" onClick={() => downloadReportCsv('companies')}>CSV</button><button type="button" onClick={() => downloadReportExcel('companies')}>Excel</button><button type="button" onClick={() => printReport('companies')}>PDF</button></div></article><article className="report-card"><div className="report-card-icon blue">＋</div><div><h2>Leads</h2><p>Contatos, origem, responsável e próximos contatos.</p></div><div className="report-actions"><button type="button" onClick={() => downloadReportCsv('leads')}>CSV</button><button type="button" onClick={() => downloadReportExcel('leads')}>Excel</button><button type="button" onClick={() => printReport('leads')}>PDF</button></div></article></div></section>}
-        {activePage === 'settings' && <section className="settings-panel"><div className="settings-heading"><div><p className="eyebrow">GESTÃO</p><h1>Configurações</h1><p className="subtitle">Administre sua conta e as pessoas que acessam o workspace.</p></div><button className="logout-button" type="button" onClick={logout}>Sair da conta</button></div><div className="settings-grid"><form className="settings-card" onSubmit={updateAccount}><div className="settings-card-heading"><div><h2>Minha conta</h2><p>Atualize seus dados de acesso.</p></div></div><label>Nome exibido<input required value={profileDraft.name} onChange={(event) => setProfileDraft({ ...profileDraft, name: event.target.value })} /></label><label>E-mail de acesso<input required type="email" value={profileDraft.email} onChange={(event) => setProfileDraft({ ...profileDraft, email: event.target.value })} placeholder="voce@empresa.com" /></label><label>Nova senha<input type="password" minLength={6} value={accountPassword} onChange={(event) => setAccountPassword(event.target.value)} placeholder="Deixe em branco para manter" /></label><button className="primary-button" type="submit">Salvar alterações</button></form><div className="settings-card"><div className="settings-card-heading"><div><h2>Usuários do workspace</h2><p>Cadastre pessoas para utilizar o CRM.</p></div><span className="user-count">{users.length}</span></div><form className="new-user-form" onSubmit={addUser}><input required value={newUser.name} onChange={(event) => setNewUser({ ...newUser, name: event.target.value })} placeholder="Nome completo" /><input required type="email" value={newUser.email} onChange={(event) => setNewUser({ ...newUser, email: event.target.value })} placeholder="E-mail" /><select value={newUser.role} onChange={(event) => setNewUser({ ...newUser, role: event.target.value })}><option>Colaborador</option><option>Administrador</option><option>Gestor</option></select><input required type="password" minLength={6} value={newUser.password} onChange={(event) => setNewUser({ ...newUser, password: event.target.value })} placeholder="Senha inicial" /><button className="secondary-button" type="submit">Adicionar usuário</button></form><div className="user-list">{users.map((user) => <div className="user-row" key={user.id}><span className="company-avatar">{initials(user.name)}</span><div><strong>{user.name}</strong><small>{user.email} · {user.role}</small></div>{user.id === sessionUserId && <span className="current-user-tag">Você</span>}</div>)}</div></div></div></section>}
+        {activePage === 'settings' && <section className="settings-panel"><div className="settings-heading"><div><p className="eyebrow">GESTÃO</p><h1>Configurações</h1><p className="subtitle">Administre sua conta e as pessoas que acessam o workspace.</p></div><button className="logout-button" type="button" onClick={logout}>Sair da conta</button></div><div className="settings-grid"><form className="settings-card" onSubmit={updateAccount}><div className="settings-card-heading"><div><h2>Minha conta</h2><p>Atualize seus dados de acesso.</p></div></div><label>Nome exibido<input required value={profileDraft.name} onChange={(event) => setProfileDraft({ ...profileDraft, name: event.target.value })} /></label><label>E-mail de acesso<input required type="email" value={profileDraft.email} onChange={(event) => setProfileDraft({ ...profileDraft, email: event.target.value })} placeholder="voce@empresa.com" /></label><label>Nova senha<input type="password" minLength={6} value={accountPassword} onChange={(event) => setAccountPassword(event.target.value)} placeholder="Deixe em branco para manter" /></label><button className="primary-button" type="submit">Salvar alterações</button></form><div className="settings-card"><div className="settings-card-heading"><div><h2>Usuários do workspace</h2><p>Cadastre pessoas para utilizar o CRM.</p></div><span className="user-count">{users.length}</span></div><form className="new-user-form" onSubmit={addUser}><input required value={newUser.name} onChange={(event) => setNewUser({ ...newUser, name: event.target.value })} placeholder="Nome completo" /><input required type="email" value={newUser.email} onChange={(event) => setNewUser({ ...newUser, email: event.target.value })} placeholder="E-mail" /><select value={newUser.role} onChange={(event) => setNewUser({ ...newUser, role: event.target.value })}><option>Colaborador</option><option>Administrador</option><option>Gestor</option></select><input required type="password" minLength={6} value={newUser.password} onChange={(event) => setNewUser({ ...newUser, password: event.target.value })} placeholder="Senha inicial" /><label className="new-user-photo">Foto do perfil<input type="file" accept="image/*" onChange={handleNewUserPhoto} /><span>{newUserPhoto ? 'Foto selecionada' : 'Escolher foto'}</span></label><button className="secondary-button" type="submit">Adicionar usuário</button></form><div className="user-list">{users.map((user) => <div className="user-row" key={user.id}><span className="company-avatar">{user.photo ? <img src={user.photo} alt="" /> : initials(user.name)}</span><div><strong>{user.name}</strong><small>{user.email} · {user.role}</small></div>{user.id !== sessionUserId && currentUser?.email.toLowerCase() === 'lucasthyagootk@gmail.com' && <button className="user-delete" type="button" onClick={() => deleteUser(user.id)}>Excluir</button>}{user.id === sessionUserId && <span className="current-user-tag">Você</span>}</div>)}</div></div></div></section>}
+        {activePage === 'settings' && <form className="workspace-settings" onSubmit={saveWorkspaceName}><div><h2>Workspace</h2><p>Defina o nome da agência exibido no menu lateral.</p></div><div className="workspace-settings-controls"><input aria-label="Nome da agência" value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} /><button className="primary-button" type="submit">Salvar nome</button></div></form>}
+      {activePage === 'companies' && <><form className="company-finance-panel" onSubmit={saveCompanyFinance}><div><p className="eyebrow">GESTÃO FINANCEIRA</p><h2>Valores por empresa</h2><p>Registre quanto cada cliente paga e quanto investe em mídia por semana.</p></div><div className="company-finance-fields"><select required value={financialCompanyId || ''} onChange={(event) => selectFinancialCompany(Number(event.target.value))}><option value="">Selecione uma empresa</option>{prospects.map((prospect) => <option key={prospect.id} value={prospect.id}>{prospect.company}</option>)}</select><label>Valor que paga<input type="number" min="0" value={financialValue || ''} onChange={(event) => setFinancialValue(Number(event.target.value))} placeholder="R$ 0" /></label><label>Mídia por semana<input type="number" min="0" value={financialMedia || ''} onChange={(event) => setFinancialMedia(Number(event.target.value))} placeholder="R$ 0" /></label><button className="primary-button" type="submit">Salvar valores</button></div></form>{selectedFinancialCompany && <section className="company-history-panel"><div className="company-history-heading"><div><p className="eyebrow">HISTÓRICO</p><h2>Registro de {selectedFinancialCompany.company}</h2><p>Alterações recentes nos dados desta empresa.</p></div><div className="company-report-actions"><button type="button" onClick={() => downloadCompanyReport(selectedFinancialCompany, 'csv')}>CSV</button><button type="button" onClick={() => downloadCompanyReport(selectedFinancialCompany, 'excel')}>Excel</button><button type="button" onClick={() => downloadCompanyReport(selectedFinancialCompany, 'pdf')}>PDF</button></div></div>{selectedCompanyChanges.length > 0 ? <div className="company-history-list">{selectedCompanyChanges.map((change, index) => <div className={`company-change ${index === 0 ? 'latest' : ''}`} key={change.id}><div><strong>{change.field}</strong><small>{new Intl.DateTimeFormat('pt-BR').format(new Date(change.changedAt))}</small></div><span>{change.previousValue}</span><b>→</b><strong className="new-value">{change.newValue}</strong></div>)}</div> : <div className="empty-state"><strong>Nenhuma alteração registrada</strong><span>As próximas mudanças aparecerão aqui.</span></div>}</section>}</>}
       </main>
 
       {drawerOpen && <div className="drawer-backdrop" onClick={() => setDrawerOpen(false)}><aside className="drawer" onClick={(event) => event.stopPropagation()}><div className="drawer-header"><div><p className="eyebrow">QUALIFICAÇÃO</p><h2>{editingId ? 'Editar empresa' : 'Nova empresa'}</h2><p>Preencha os dados essenciais para qualificar este contato.</p></div><button className="close-button" onClick={() => setDrawerOpen(false)}>×</button></div><form onSubmit={handleSubmit}><label>Nome da Empresa<input required value={form.company} onChange={(event) => setForm({ ...form, company: event.target.value })} placeholder="Ex.: Clínica Horizonte" /></label><label>Nome do Dono<input required value={form.owner} onChange={(event) => setForm({ ...form, owner: event.target.value })} placeholder="Ex.: Marina Alves" /></label><label>Faturamento anual<input required type="number" min="0" value={form.revenue || ''} onChange={(event) => setForm({ ...form, revenue: Number(event.target.value) })} placeholder="0" /></label><label>Nicho / Setor<input required value={form.sector} onChange={(event) => setForm({ ...form, sector: event.target.value })} placeholder="Ex.: Saúde" /></label><div className="toggle-row"><div><strong>Produz conteúdo?</strong><small>A empresa mantém uma rotina de conteúdo.</small></div><button type="button" className={`toggle ${form.content ? 'on' : ''}`} onClick={() => setForm({ ...form, content: !form.content })} aria-pressed={form.content}><span /></button></div><div className="toggle-row"><div><strong>Compra mídia?</strong><small>Investe atualmente em anúncios pagos.</small></div><button type="button" className={`toggle ${form.media ? 'on' : ''}`} onClick={() => setForm({ ...form, media: !form.media })} aria-pressed={form.media}><span /></button></div><div className="drawer-actions"><button type="button" className="secondary-button" onClick={() => setDrawerOpen(false)}>Cancelar</button><button className="primary-button" type="submit">{editingId ? 'Salvar alterações' : 'Cadastrar empresa'}</button></div></form></aside></div>}
