@@ -80,9 +80,20 @@ const initialProspects: Prospect[] = [
   { id: 5, company: 'Vitta Pet', owner: 'Carolina Freire', revenue: 410000, sector: 'Pet', content: false, media: false, createdAt: '2026-09-12' },
 ]
 
+const initialLeads: Lead[] = [
+  { id: 101, company: 'Agência Nova', email: 'contato@agencianova.com', phone: '(11) 98888-7777', sector: 'Marketing', location: 'São Paulo, SP', source: 'Instagram', owner: 'Fernanda Rocha', nextContact: '2026-09-30', notes: 'Pedido de landing page e tráfego pago para e-commerce.', createdAt: '2026-09-24' },
+  { id: 102, company: 'Urban Loft', email: 'contato@urbanloft.com.br', phone: '(21) 99777-1122', sector: 'Imóveis', location: 'Rio de Janeiro, RJ', source: 'Google', owner: 'Lucas Silva', nextContact: '2026-09-28', notes: 'Precisa de campanha para imóveis à venda com foco em conversão.', createdAt: '2026-09-23' },
+]
+
+const initialFollowUps: FollowUp[] = [
+  { id: 201, leadId: 101, company: 'Agência Nova', email: 'contato@agencianova.com', phone: '(11) 98888-7777', owner: 'Fernanda Rocha', action: 'Pedido de landing page e tráfego pago para e-commerce.', nextContact: '2026-09-30', createdAt: '2026-09-24' },
+  { id: 202, leadId: 102, company: 'Urban Loft', email: 'contato@urbanloft.com.br', phone: '(21) 99777-1122', owner: 'Lucas Silva', action: 'Precisa de campanha para imóveis à venda com foco em conversão.', nextContact: '2026-09-28', createdAt: '2026-09-23' },
+]
+
 const emptyForm: ProspectForm = { company: '', owner: '', revenue: 0, clientValue: 0, weeklyMediaInvestment: 0, sector: '', content: false, media: false }
 const emptyLeadForm: LeadForm = { company: '', email: '', phone: '', sector: '', location: '', source: '', owner: '', nextContact: '', notes: '' }
-const defaultProfile: UserProfile = { name: 'Lucas Silva', role: 'Administrador', email: '', status: 'Disponível', timezone: 'Brasília (GMT-3)', photo: '' }
+const defaultUsers: UserAccount[] = [{ id: 1, name: 'Lucas Silva', role: 'Administrador', email: 'lucas@newtype.com', password: '123456', status: 'Disponível', timezone: 'Brasília (GMT-3)', photo: '' }]
+const defaultProfile: UserProfile = { name: 'Lucas Silva', role: 'Administrador', email: 'lucas@newtype.com', status: 'Disponível', timezone: 'Brasília (GMT-3)', photo: '' }
 
 const formatCurrency = (value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(value)
 const initials = (name: string) => name.split(' ').map((part) => part[0]).slice(0, 2).join('').toUpperCase()
@@ -106,14 +117,18 @@ function App() {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [leads, setLeads] = useState<Lead[]>(() => {
     const saved = localStorage.getItem('clareza-leads')
-    return saved ? JSON.parse(saved) : []
+    if (saved) return JSON.parse(saved)
+    localStorage.setItem('clareza-leads', JSON.stringify(initialLeads))
+    return initialLeads
   })
   const [leadForm, setLeadForm] = useState<LeadForm>(emptyLeadForm)
   const [leadQuery, setLeadQuery] = useState('')
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [followUps, setFollowUps] = useState<FollowUp[]>(() => {
     const saved = localStorage.getItem('clareza-followups')
-    return saved ? JSON.parse(saved) : []
+    if (saved) return JSON.parse(saved)
+    localStorage.setItem('clareza-followups', JSON.stringify(initialFollowUps))
+    return initialFollowUps
   })
   const [profile, setProfile] = useState<UserProfile>(() => {
     const saved = localStorage.getItem('clareza-profile')
@@ -124,16 +139,21 @@ function App() {
   const [workspaceName, setWorkspaceName] = useState(() => localStorage.getItem('newtype-workspace-name') || 'Agência Aurora')
   const [users, setUsers] = useState<UserAccount[]>(() => {
     const saved = localStorage.getItem('clareza-users')
-    return saved ? JSON.parse(saved) : []
+    if (saved) return JSON.parse(saved)
+    localStorage.setItem('clareza-users', JSON.stringify(defaultUsers))
+    return defaultUsers
   })
   const [sessionUserId, setSessionUserId] = useState<number | null>(() => {
     const saved = localStorage.getItem('clareza-session')
-    return saved ? Number(saved) : null
+    if (saved) return Number(saved)
+    const demoUserId = defaultUsers[0]?.id ?? null
+    if (demoUserId) localStorage.setItem('clareza-session', String(demoUserId))
+    return demoUserId
   })
   const [authMode, setAuthMode] = useState<AuthMode>('login')
   const [authName, setAuthName] = useState('')
-  const [authEmail, setAuthEmail] = useState('')
-  const [authPassword, setAuthPassword] = useState('')
+  const [authEmail, setAuthEmail] = useState('lucas@newtype.com')
+  const [authPassword, setAuthPassword] = useState('123456')
   const [authError, setAuthError] = useState('')
   const [authMessage, setAuthMessage] = useState('')
   const [newUser, setNewUser] = useState({ name: '', email: '', role: 'Colaborador', password: '' })
