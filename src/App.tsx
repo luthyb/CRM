@@ -46,6 +46,8 @@ type UserProfile = {
   timezone: string
   photo: string
 }
+type UserAccount = UserProfile & { id: number; password: string }
+type AuthMode = 'login' | 'register'
 type ReportKind = 'companies' | 'leads'
 type NavPage = 'overview' | 'companies' | 'leads' | 'pipeline' | 'followups' | 'reports' | 'settings'
 
@@ -73,6 +75,11 @@ const defaultProfile: UserProfile = { name: 'Lucas Silva', role: 'Administrador'
 
 const formatCurrency = (value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(value)
 const initials = (name: string) => name.split(' ').map((part) => part[0]).slice(0, 2).join('').toUpperCase()
+
+function AuthScreen({ mode, name, email, password, error, message, hasUsers, onModeChange, onSubmit, onNameChange, onEmailChange, onPasswordChange }: { mode: AuthMode; name: string; email: string; password: string; error: string; message: string; hasUsers: boolean; onModeChange: (mode: AuthMode) => void; onSubmit: (event: FormEvent) => void; onNameChange: (value: string) => void; onEmailChange: (value: string) => void; onPasswordChange: (value: string) => void }) {
+  const isRegister = mode === 'register'
+  return <main className="auth-shell"><section className="auth-card"><div className="brand auth-brand"><span className="brand-mark">C</span><span>clareza<span className="brand-dot">.</span></span></div><p className="eyebrow">WORKSPACE PRINCIPAL</p><h1>{isRegister ? 'Crie sua conta' : 'Bem-vindo de volta'}</h1><p className="auth-subtitle">{isRegister ? 'Cadastre seu acesso para começar a organizar sua operação.' : 'Entre para acessar seu CRM e continuar sua operação.'}</p><form onSubmit={onSubmit}>{isRegister && <label>Nome completo<input required value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="Ex.: Lucas Silva" /></label>}<label>E-mail<input required type="email" value={email} onChange={(event) => onEmailChange(event.target.value)} placeholder="voce@empresa.com" /></label><label>Senha<input required type="password" minLength={6} value={password} onChange={(event) => onPasswordChange(event.target.value)} placeholder="Mínimo de 6 caracteres" /></label>{message && <p className="auth-message">{message}</p>}{error && <p className="auth-error">{error}</p>}<button className="primary-button auth-submit" type="submit">{isRegister ? 'Criar conta' : 'Entrar'}</button></form><button className="auth-switch" type="button" onClick={() => onModeChange(isRegister ? 'login' : 'register')}>{isRegister ? 'Já tenho uma conta' : hasUsers ? 'Criar uma nova conta' : 'Ainda não tenho uma conta'}</button><small className="auth-note">Protótipo local: os dados de acesso ficam armazenados apenas neste navegador.</small></section></main>
+}
 
 function App() {
   const [prospects, setProspects] = useState<Prospect[]>(() => {
@@ -103,6 +110,22 @@ function App() {
   })
   const [profileDraft, setProfileDraft] = useState<UserProfile>(profile)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [users, setUsers] = useState<UserAccount[]>(() => {
+    const saved = localStorage.getItem('clareza-users')
+    return saved ? JSON.parse(saved) : []
+  })
+  const [sessionUserId, setSessionUserId] = useState<number | null>(() => {
+    const saved = localStorage.getItem('clareza-session')
+    return saved ? Number(saved) : null
+  })
+  const [authMode, setAuthMode] = useState<AuthMode>('login')
+  const [authName, setAuthName] = useState('')
+  const [authEmail, setAuthEmail] = useState('')
+  const [authPassword, setAuthPassword] = useState('')
+  const [authError, setAuthError] = useState('')
+  const [authMessage, setAuthMessage] = useState('')
+  const [newUser, setNewUser] = useState({ name: '', email: '', role: 'Colaborador', password: '' })
+  const [accountPassword, setAccountPassword] = useState('')
 
   const saveProspects = (next: Prospect[]) => {
     setProspects(next)
@@ -249,6 +272,7 @@ function App() {
     const next = { ...profileDraft, name: profileDraft.name.trim() || defaultProfile.name }
     setProfile(next)
     localStorage.setItem('clareza-profile', JSON.stringify(next))
+    if (sessionUserId) saveUsers(users.map((user) => user.id === sessionUserId ? { ...user, name: next.name, role: next.role, email: next.email, status: next.status, timezone: next.timezone, photo: next.photo } : user))
     setProfileOpen(false)
   }
 
@@ -258,6 +282,78 @@ function App() {
     const reader = new FileReader()
     reader.onload = () => setProfileDraft({ ...profileDraft, photo: String(reader.result) })
     reader.readAsDataURL(file)
+  }
+
+  const saveUsers = (next: UserAccount[]) => {
+    setUsers(next)
+    localStorage.setItem('clareza-users', JSON.stringify(next))
+  }
+
+  const startSession = (user: UserAccount) => {
+    setSessionUserId(user.id)
+    localStorage.setItem('clareza-session', String(user.id))
+    setProfile({ name: user.name, role: user.role, email: user.email, status: user.status, timezone: user.timezone, photo: user.photo })
+    setProfileDraft({ name: user.name, role: user.role, email: user.email, status: user.status, timezone: user.timezone, photo: user.photo })
+    setAuthEmail('')
+    setAuthPassword('')
+    setAuthError('')
+  }
+
+  const handleAuthSubmit = (event: FormEvent) => {
+    event.preventDefault()
+    const email = authEmail.trim().toLowerCase()
+    if (!email || !authPassword) return
+    if (authMode === 'register') {
+      if (!authName.trim()) {
+        setAuthError('Informe seu nome para criar a conta.')
+        return
+      }
+      if (users.some((user) => user.email.toLowerCase() === email)) {
+        setAuthError('Já existe uma conta com este e-mail.')
+        return
+      }
+      const user: UserAccount = { id: Date.now(), name: authName.trim(), role: 'Administrador', email, password: authPassword, status: 'Disponível', timezone: 'Brasília (GMT-3)', photo: '' }
+      saveUsers([...users, user])
+      setAuthMode('login')
+      setAuthName('')
+      setAuthPassword('')
+      setAuthError('')
+      setAuthMessage('Conta criada. Entre com seu e-mail e senha.')
+      return
+    }
+    const user = users.find((item) => item.email.toLowerCase() === email && item.password === authPassword)
+    if (!user) {
+      setAuthError('E-mail ou senha inválidos.')
+      setAuthMessage('')
+      return
+    }
+    startSession(user)
+  }
+
+  const logout = () => {
+    setSessionUserId(null)
+    localStorage.removeItem('clareza-session')
+    setAuthMode('login')
+  }
+
+  const addUser = (event: FormEvent) => {
+    event.preventDefault()
+    const email = newUser.email.trim().toLowerCase()
+    if (!newUser.name.trim() || !email || !newUser.password) return
+    if (users.some((user) => user.email.toLowerCase() === email)) return
+    saveUsers([...users, { id: Date.now(), name: newUser.name.trim(), role: newUser.role, email, password: newUser.password, status: 'Disponível', timezone: 'Brasília (GMT-3)', photo: '' }])
+    setNewUser({ name: '', email: '', role: 'Colaborador', password: '' })
+  }
+
+  const updateAccount = (event: FormEvent) => {
+    event.preventDefault()
+    if (!sessionUserId) return
+    const nextEmail = profileDraft.email.trim().toLowerCase()
+    if (!nextEmail) return
+    const nextUsers = users.map((user) => user.id === sessionUserId ? { ...user, name: profileDraft.name.trim() || user.name, role: profileDraft.role, email: nextEmail, status: profileDraft.status, timezone: profileDraft.timezone, photo: profileDraft.photo, password: accountPassword || user.password } : user)
+    saveUsers(nextUsers)
+    setProfile({ ...profileDraft, email: nextEmail })
+    setAccountPassword('')
   }
 
   const visibleLeads = leads.filter((lead) => `${lead.company} ${lead.email} ${lead.phone} ${lead.sector} ${lead.location}`.toLowerCase().includes(leadQuery.toLowerCase()))
@@ -285,6 +381,9 @@ function App() {
   }
 
   const currentPage = pageInfo[activePage]
+  const currentUser = users.find((user) => user.id === sessionUserId)
+
+  if (!currentUser) return <AuthScreen mode={authMode} name={authName} email={authEmail} password={authPassword} error={authError} message={authMessage} hasUsers={users.length > 0} onModeChange={(mode) => { setAuthMode(mode); setAuthError(''); setAuthMessage('') }} onSubmit={handleAuthSubmit} onNameChange={setAuthName} onEmailChange={setAuthEmail} onPasswordChange={setAuthPassword} />
 
   return (
     <div className="app-shell">
@@ -309,7 +408,7 @@ function App() {
 
       <main className="main-content">
         <header className="topbar"><div className="breadcrumbs"><span>{currentPage.group}</span><b>/</b><strong>{currentPage.label}</strong></div><div className="top-actions"><button className="icon-button" title="Notificações" aria-label="Abrir notificações" aria-expanded={notificationsOpen} onClick={() => { setNotificationsOpen(!notificationsOpen); setProfileOpen(false) }}>♢{notifications.length > 0 && <i />}</button><button className="top-avatar" type="button" onClick={openProfile} aria-label="Abrir configurações do perfil">{profile.photo ? <img src={profile.photo} alt="" /> : initials(profile.name)}</button>{notificationsOpen && <div className="notification-panel"><div className="notification-heading"><div><strong>Notificações</strong><span>{notifications.length > 0 ? `${notifications.length} pendência${notifications.length > 1 ? 's' : ''}` : 'Tudo em dia'}</span></div><button type="button" onClick={() => setNotificationsOpen(false)} aria-label="Fechar notificações">×</button></div><div className="notification-list">{notifications.length > 0 ? notifications.map((notification) => <button className="notification-item" type="button" key={notification.id} onClick={() => navigateTo('pipeline')}><span className="notification-dot" /><span><strong>{notification.title}</strong><small>{notification.detail}</small></span></button>) : <div className="notification-empty"><span>✓</span><strong>Nenhuma pendência</strong><small>Você está em dia com os contatos.</small></div>}</div></div>}{profileOpen && <form className="profile-panel" onSubmit={saveProfile}><div className="profile-panel-heading"><div><strong>Meu perfil</strong><span>Personalize como você aparece no workspace.</span></div><button type="button" onClick={() => setProfileOpen(false)} aria-label="Fechar perfil">×</button></div><div className="profile-photo-row"><span className="profile-panel-avatar">{profileDraft.photo ? <img src={profileDraft.photo} alt="Prévia da foto" /> : initials(profileDraft.name)}</span><label className="photo-button">Trocar foto<input type="file" accept="image/*" onChange={handleProfilePhoto} /></label>{profileDraft.photo && <button type="button" className="remove-photo" onClick={() => setProfileDraft({ ...profileDraft, photo: '' })}>Remover</button>}</div><label>Nome exibido<input required value={profileDraft.name} onChange={(event) => setProfileDraft({ ...profileDraft, name: event.target.value })} /></label><label>Cargo<input value={profileDraft.role} onChange={(event) => setProfileDraft({ ...profileDraft, role: event.target.value })} placeholder="Ex.: Administrador" /></label><label>E-mail<input type="email" value={profileDraft.email} onChange={(event) => setProfileDraft({ ...profileDraft, email: event.target.value })} placeholder="seu@email.com" /></label><div className="profile-fields-row"><label>Status<select value={profileDraft.status} onChange={(event) => setProfileDraft({ ...profileDraft, status: event.target.value })}><option>Disponível</option><option>Ausente</option><option>Ocupado</option></select></label><label>Fuso horário<select value={profileDraft.timezone} onChange={(event) => setProfileDraft({ ...profileDraft, timezone: event.target.value })}><option>Brasília (GMT-3)</option><option>Fernando de Noronha (GMT-2)</option><option>Amazonas (GMT-4)</option></select></label></div><button className="primary-button profile-save" type="submit">Salvar perfil</button></form>}</div></header>
-        <div className={`page-content ${activePage === 'companies' ? 'companies-page' : ''} ${activePage === 'reports' ? 'reports-page' : ''}`}>
+        <div className={`page-content ${activePage === 'companies' ? 'companies-page' : ''} ${activePage === 'reports' ? 'reports-page' : ''} ${activePage === 'settings' ? 'settings-page' : ''}`}>
           {activePage === 'overview' || activePage === 'companies' ? <>
           <section className="welcome"><div><p className="eyebrow">QUARTA-FEIRA, 25 DE SETEMBRO DE 2026</p><h1>Bom dia, Lucas <span>↗</span></h1><p className="subtitle">Aqui está o panorama dos seus potenciais clientes.</p></div><button className="primary-button" onClick={openCreate}><span>＋</span> Nova empresa</button></section>
           <section className="metric-grid" aria-label="Resumo da operação">
@@ -345,6 +444,7 @@ function App() {
           </section> : activePage === 'pipeline' ? <section className="pipeline-page"><div className="pipeline-heading"><div><p className="eyebrow">OPERAÇÃO</p><h1>Pipeline</h1><p className="subtitle">Organize as próximas ações para transformar leads em oportunidades.</p></div><div className="pipeline-count"><strong>{pipelineLeads.length}</strong><span>ações cadastradas</span></div></div><div className="pipeline-list"><div className="pipeline-list-header"><div><h2>Próximas ações</h2><p>Empresas com contato previsto ou em acompanhamento.</p></div></div>{pipelineLeads.length > 0 ? pipelineLeads.map((lead) => <article className="pipeline-item" key={lead.id}><div className="pipeline-company"><span className="company-avatar">{initials(lead.company)}</span><div><h3>{lead.company}</h3><p>{lead.company}</p></div></div><div className="pipeline-contact"><small>CONTATO</small><strong>{lead.email}</strong><span>{lead.phone}</span></div><div className="pipeline-action"><small>AÇÃO</small><strong>{lead.notes || 'Realizar contato de qualificação'}</strong></div><div className="pipeline-owner"><small>RESPONSÁVEL</small><strong>{lead.owner || 'Não definido'}</strong></div><div className="pipeline-date"><small>DATA</small><strong className={lead.nextContact < today ? 'overdue' : ''}>{new Intl.DateTimeFormat('pt-BR').format(new Date(`${lead.nextContact}T12:00:00`))}</strong><span>{lead.nextContact < today ? 'Atrasado' : lead.nextContact === today ? 'Hoje' : 'Agendado'}</span></div><button className="pipeline-done" type="button" onClick={() => completePipelineAction(lead)}>Feito</button></article>) : <div className="empty-state"><strong>Nenhuma ação no pipeline</strong><span>Cadastre um próximo contato em Leads para acompanhar uma oportunidade aqui.</span></div>}</div></section> : activePage === 'followups' ? <section className="followups-page"><div className="followups-heading"><div><p className="eyebrow">OPERAÇÃO</p><h1>Follow-ups</h1><p className="subtitle">Configure quando cada contato deverá acontecer novamente.</p></div><div className="pipeline-count"><strong>{followUps.length}</strong><span>ações concluídas</span></div></div><div className="followup-list">{followUps.length > 0 ? followUps.map((followUp) => <article className="followup-item" key={followUp.id}><div className="pipeline-company"><span className="company-avatar">{initials(followUp.company)}</span><div><h3>{followUp.company}</h3><p>{followUp.email} <span>•</span> {followUp.phone}</p></div></div><div className="followup-action"><small>AÇÃO CONCLUÍDA</small><strong>{followUp.action}</strong><span>Responsável: {followUp.owner || 'Não definido'}</span></div><label className="followup-date"><small>PRÓXIMO CONTATO</small><input type="date" value={followUp.nextContact} onChange={(event) => scheduleFollowUp(followUp.id, event.target.value)} /><span>{followUp.nextContact ? 'Agendado' : 'Defina uma data'}</span></label></article>) : <div className="empty-state"><strong>Nenhum follow-up pendente</strong><span>Conclua uma ação no Pipeline para configurá-la aqui.</span></div>}</div></section> : <section className="placeholder-page"><p className="eyebrow">{currentPage.group.toUpperCase()}</p><div className="placeholder-icon">{activePage === 'reports' ? '▦' : '⚙'}</div><h1>{currentPage.label}</h1><p>{currentPage.description}</p><span>Esta área está pronta para receber os próximos recursos.</span></section>}
         </div>
         {activePage === 'reports' && <section className="report-panel"><div className="report-heading"><div><p className="eyebrow">GESTÃO</p><h1>Relatórios</h1><p className="subtitle">Exporte os dados do CRM no formato que precisar.</p></div></div><div className="report-cards"><article className="report-card"><div className="report-card-icon">◎</div><div><h2>Empresas</h2><p>Dados cadastrais, faturamento, nicho e qualificação.</p></div><div className="report-actions"><button type="button" onClick={() => downloadReportCsv('companies')}>CSV</button><button type="button" onClick={() => downloadReportExcel('companies')}>Excel</button><button type="button" onClick={() => printReport('companies')}>PDF</button></div></article><article className="report-card"><div className="report-card-icon blue">＋</div><div><h2>Leads</h2><p>Contatos, origem, responsável e próximos contatos.</p></div><div className="report-actions"><button type="button" onClick={() => downloadReportCsv('leads')}>CSV</button><button type="button" onClick={() => downloadReportExcel('leads')}>Excel</button><button type="button" onClick={() => printReport('leads')}>PDF</button></div></article></div></section>}
+        {activePage === 'settings' && <section className="settings-panel"><div className="settings-heading"><div><p className="eyebrow">GESTÃO</p><h1>Configurações</h1><p className="subtitle">Administre sua conta e as pessoas que acessam o workspace.</p></div><button className="logout-button" type="button" onClick={logout}>Sair da conta</button></div><div className="settings-grid"><form className="settings-card" onSubmit={updateAccount}><div className="settings-card-heading"><div><h2>Minha conta</h2><p>Atualize seus dados de acesso.</p></div></div><label>Nome exibido<input required value={profileDraft.name} onChange={(event) => setProfileDraft({ ...profileDraft, name: event.target.value })} /></label><label>E-mail de acesso<input required type="email" value={profileDraft.email} onChange={(event) => setProfileDraft({ ...profileDraft, email: event.target.value })} placeholder="voce@empresa.com" /></label><label>Nova senha<input type="password" minLength={6} value={accountPassword} onChange={(event) => setAccountPassword(event.target.value)} placeholder="Deixe em branco para manter" /></label><button className="primary-button" type="submit">Salvar alterações</button></form><div className="settings-card"><div className="settings-card-heading"><div><h2>Usuários do workspace</h2><p>Cadastre pessoas para utilizar o CRM.</p></div><span className="user-count">{users.length}</span></div><form className="new-user-form" onSubmit={addUser}><input required value={newUser.name} onChange={(event) => setNewUser({ ...newUser, name: event.target.value })} placeholder="Nome completo" /><input required type="email" value={newUser.email} onChange={(event) => setNewUser({ ...newUser, email: event.target.value })} placeholder="E-mail" /><select value={newUser.role} onChange={(event) => setNewUser({ ...newUser, role: event.target.value })}><option>Colaborador</option><option>Administrador</option><option>Gestor</option></select><input required type="password" minLength={6} value={newUser.password} onChange={(event) => setNewUser({ ...newUser, password: event.target.value })} placeholder="Senha inicial" /><button className="secondary-button" type="submit">Adicionar usuário</button></form><div className="user-list">{users.map((user) => <div className="user-row" key={user.id}><span className="company-avatar">{initials(user.name)}</span><div><strong>{user.name}</strong><small>{user.email} · {user.role}</small></div>{user.id === sessionUserId && <span className="current-user-tag">Você</span>}</div>)}</div></div></div></section>}
       </main>
 
       {drawerOpen && <div className="drawer-backdrop" onClick={() => setDrawerOpen(false)}><aside className="drawer" onClick={(event) => event.stopPropagation()}><div className="drawer-header"><div><p className="eyebrow">QUALIFICAÇÃO</p><h2>{editingId ? 'Editar empresa' : 'Nova empresa'}</h2><p>Preencha os dados essenciais para qualificar este contato.</p></div><button className="close-button" onClick={() => setDrawerOpen(false)}>×</button></div><form onSubmit={handleSubmit}><label>Nome da Empresa<input required value={form.company} onChange={(event) => setForm({ ...form, company: event.target.value })} placeholder="Ex.: Clínica Horizonte" /></label><label>Nome do Dono<input required value={form.owner} onChange={(event) => setForm({ ...form, owner: event.target.value })} placeholder="Ex.: Marina Alves" /></label><label>Faturamento anual<input required type="number" min="0" value={form.revenue || ''} onChange={(event) => setForm({ ...form, revenue: Number(event.target.value) })} placeholder="0" /></label><label>Nicho / Setor<input required value={form.sector} onChange={(event) => setForm({ ...form, sector: event.target.value })} placeholder="Ex.: Saúde" /></label><div className="toggle-row"><div><strong>Produz conteúdo?</strong><small>A empresa mantém uma rotina de conteúdo.</small></div><button type="button" className={`toggle ${form.content ? 'on' : ''}`} onClick={() => setForm({ ...form, content: !form.content })} aria-pressed={form.content}><span /></button></div><div className="toggle-row"><div><strong>Compra mídia?</strong><small>Investe atualmente em anúncios pagos.</small></div><button type="button" className={`toggle ${form.media ? 'on' : ''}`} onClick={() => setForm({ ...form, media: !form.media })} aria-pressed={form.media}><span /></button></div><div className="drawer-actions"><button type="button" className="secondary-button" onClick={() => setDrawerOpen(false)}>Cancelar</button><button className="primary-button" type="submit">{editingId ? 'Salvar alterações' : 'Cadastrar empresa'}</button></div></form></aside></div>}
