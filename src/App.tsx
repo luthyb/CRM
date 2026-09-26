@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, useMemo, useState } from 'react'
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 
 type Prospect = {
   id: number
@@ -14,6 +14,15 @@ type Prospect = {
 }
 
 type ProspectForm = Omit<Prospect, 'id' | 'createdAt'>
+type LeadInteractionType = 'Ligação' | 'WhatsApp' | 'Reunião' | 'Observação'
+
+type LeadInteraction = {
+  id: number
+  type: LeadInteractionType
+  note: string
+  createdAt: string
+}
+
 type Lead = {
   id: number
   company: string
@@ -25,10 +34,27 @@ type Lead = {
   owner: string
   nextContact: string
   notes: string
+  tags: string[]
+  priority: 'Alta' | 'Média' | 'Baixa'
+  status: 'Novo' | 'Qualificando' | 'Agendado' | 'Fechado' | 'Perdido'
+  interactions: LeadInteraction[]
   createdAt: string
 }
 
-type LeadForm = Omit<Lead, 'id' | 'createdAt'>
+type LeadForm = {
+  company: string
+  email: string
+  phone: string
+  sector: string
+  location: string
+  source: string
+  owner: string
+  nextContact: string
+  notes: string
+  tags: string[]
+  priority: 'Alta' | 'Média' | 'Baixa'
+  status: 'Novo' | 'Qualificando' | 'Agendado' | 'Fechado' | 'Perdido'
+}
 type FollowUp = {
   id: number
   leadId: number
@@ -48,8 +74,17 @@ type UserProfile = {
   timezone: string
   photo: string
 }
-type UserAccount = UserProfile & { id: number; password: string }
+type UserAccount = UserProfile & { id: number; isOwner: boolean }
+type SharedWorkspace = {
+  prospects: Prospect[]
+  leads: Lead[]
+  followUps: FollowUp[]
+  companyChanges: CompanyChange[]
+  workspaceName: string
+  initialized: boolean
+}
 type AuthMode = 'login' | 'register'
+type AuthResponse = { user: UserAccount; users: UserAccount[] }
 type ReportKind = 'companies' | 'leads'
 type CompanyChange = {
   id: number
@@ -80,34 +115,73 @@ const initialProspects: Prospect[] = [
   { id: 5, company: 'Vitta Pet', owner: 'Carolina Freire', revenue: 410000, sector: 'Pet', content: false, media: false, createdAt: '2026-09-12' },
 ]
 
-const initialLeads: Lead[] = [
-  { id: 101, company: 'Agência Nova', email: 'contato@agencianova.com', phone: '(11) 98888-7777', sector: 'Marketing', location: 'São Paulo, SP', source: 'Instagram', owner: 'Fernanda Rocha', nextContact: '2026-09-30', notes: 'Pedido de landing page e tráfego pago para e-commerce.', createdAt: '2026-09-24' },
-  { id: 102, company: 'Urban Loft', email: 'contato@urbanloft.com.br', phone: '(21) 99777-1122', sector: 'Imóveis', location: 'Rio de Janeiro, RJ', source: 'Google', owner: 'Lucas Silva', nextContact: '2026-09-28', notes: 'Precisa de campanha para imóveis à venda com foco em conversão.', createdAt: '2026-09-23' },
-]
-
-const initialFollowUps: FollowUp[] = [
-  { id: 201, leadId: 101, company: 'Agência Nova', email: 'contato@agencianova.com', phone: '(11) 98888-7777', owner: 'Fernanda Rocha', action: 'Pedido de landing page e tráfego pago para e-commerce.', nextContact: '2026-09-30', createdAt: '2026-09-24' },
-  { id: 202, leadId: 102, company: 'Urban Loft', email: 'contato@urbanloft.com.br', phone: '(21) 99777-1122', owner: 'Lucas Silva', action: 'Precisa de campanha para imóveis à venda com foco em conversão.', nextContact: '2026-09-28', createdAt: '2026-09-23' },
-]
-
 const emptyForm: ProspectForm = { company: '', owner: '', revenue: 0, clientValue: 0, weeklyMediaInvestment: 0, sector: '', content: false, media: false }
-const emptyLeadForm: LeadForm = { company: '', email: '', phone: '', sector: '', location: '', source: '', owner: '', nextContact: '', notes: '' }
-const defaultUsers: UserAccount[] = [{ id: 1, name: 'Lucas Silva', role: 'Administrador', email: 'lucas@newtype.com', password: '123456', status: 'Disponível', timezone: 'Brasília (GMT-3)', photo: '' }]
-const defaultProfile: UserProfile = { name: 'Lucas Silva', role: 'Administrador', email: 'lucas@newtype.com', status: 'Disponível', timezone: 'Brasília (GMT-3)', photo: '' }
+const emptyLeadForm: LeadForm = { company: '', email: '', phone: '', sector: '', location: '', source: '', owner: '', nextContact: '', notes: '', tags: [], priority: 'Média', status: 'Novo' }
+const ownerAccount = { name: 'Luthyb', email: 'lucasthyagootk@gmail.com' }
+const defaultProfile: UserProfile = { name: ownerAccount.name, role: 'Administrador', email: ownerAccount.email, status: 'Disponível', timezone: 'Brasília (GMT-3)', photo: '' }
+const leadTagOptions = ['alto potencial', 'indicação', 'retornar este mês', 'quente', 'cliente recorrente']
 
 const formatCurrency = (value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(value)
 const initials = (name: string) => name.split(' ').map((part) => part[0]).slice(0, 2).join('').toUpperCase()
+const normalizeText = (value: string) => value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+const escapeHtml = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+const spreadsheetValue = (value: string) => /^[\s]*[=+\-@]/.test(value) ? `'${value}` : value
+const csvCell = (value: string) => {
+  return `"${spreadsheetValue(value).replace(/"/g, '""')}"`
+}
+const toCsv = (rows: string[][]) => rows.map((row) => row.map(csvCell).join(';')).join('\n')
+const htmlTable = (headers: string[], rows: string[][], protectFormulas = false) => {
+  const cells = (row: string[]) => row.map((value) => `<td>${escapeHtml(protectFormulas ? spreadsheetValue(value) : value)}</td>`).join('')
+  return `<table><thead><tr>${cells(headers)}</tr></thead><tbody>${rows.map((row) => `<tr>${cells(row)}</tr>`).join('')}</tbody></table>`
+}
 
-function AuthScreen({ mode, name, email, password, error, message, hasUsers, onModeChange, onSubmit, onNameChange, onEmailChange, onPasswordChange }: { mode: AuthMode; name: string; email: string; password: string; error: string; message: string; hasUsers: boolean; onModeChange: (mode: AuthMode) => void; onSubmit: (event: FormEvent) => void; onNameChange: (value: string) => void; onEmailChange: (value: string) => void; onPasswordChange: (value: string) => void }) {
+async function apiRequest<T>(url: string, options: RequestInit = {}): Promise<T> {
+  const response = await fetch(url, {
+    ...options,
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', ...options.headers },
+  })
+  const payload = await response.json()
+  if (!response.ok) throw new Error(payload.error || 'Não foi possível concluir a solicitação.')
+  return payload as T
+}
+
+function readLegacyData<T>(key: string, fallback: T): T {
+  try {
+    const saved = localStorage.getItem(key)
+    return saved ? JSON.parse(saved) as T : fallback
+  } catch {
+    return fallback
+  }
+}
+
+function AuthScreen({ mode, name, email, password, bootstrapToken, error, message, hasUsers, onModeChange, onSubmit, onNameChange, onEmailChange, onPasswordChange, onBootstrapTokenChange }: { mode: AuthMode; name: string; email: string; password: string; bootstrapToken: string; error: string; message: string; hasUsers: boolean; onModeChange: (mode: AuthMode) => void; onSubmit: (event: FormEvent) => void; onNameChange: (value: string) => void; onEmailChange: (value: string) => void; onPasswordChange: (value: string) => void; onBootstrapTokenChange: (value: string) => void }) {
   const isRegister = mode === 'register'
-  return <main className="auth-shell"><section className="auth-card"><div className="brand auth-brand"><span className="brand-mark">N</span><span>NewType <span className="brand-dot">CRM</span></span></div><p className="eyebrow">WORKSPACE PRINCIPAL</p><h1>{isRegister ? 'Crie sua conta' : 'Bem-vindo de volta'}</h1><p className="auth-subtitle">{isRegister ? 'Cadastre seu acesso para começar a organizar sua operação.' : 'Entre para acessar seu CRM e continuar sua operação.'}</p><form onSubmit={onSubmit}>{isRegister && <label>Nome completo<input required value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="Ex.: Lucas Silva" /></label>}<label>E-mail<input required type="email" value={email} onChange={(event) => onEmailChange(event.target.value)} placeholder="voce@empresa.com" /></label><label>Senha<input required type="password" minLength={6} value={password} onChange={(event) => onPasswordChange(event.target.value)} placeholder="Mínimo de 6 caracteres" /></label>{message && <p className="auth-message">{message}</p>}{error && <p className="auth-error">{error}</p>}<button className="primary-button auth-submit" type="submit">{isRegister ? 'Criar conta' : 'Entrar'}</button></form><button className="auth-switch" type="button" onClick={() => onModeChange(isRegister ? 'login' : 'register')}>{isRegister ? 'Já tenho uma conta' : hasUsers ? 'Criar uma nova conta' : 'Ainda não tenho uma conta'}</button><small className="auth-note">Protótipo local: os dados de acesso ficam armazenados apenas neste navegador.</small></section></main>
+  return (
+    <main className="auth-shell">
+      <section className="auth-card">
+        <div className="brand auth-brand"><span className="brand-mark">N</span><span>NewType <span className="brand-dot">CRM</span></span></div>
+        <p className="eyebrow">WORKSPACE PRINCIPAL</p>
+        <h1>{isRegister ? 'Configure a conta do proprietário' : 'Bem-vindo de volta'}</h1>
+        <p className="auth-subtitle">{isRegister ? 'Defina a senha de acesso do proprietário.' : 'Entre para acessar seu CRM e continuar sua operação.'}</p>
+        <form onSubmit={onSubmit}>
+          {isRegister && <label>Nome do proprietário<input required maxLength={100} value={name} onChange={(event) => onNameChange(event.target.value)} /></label>}
+          <label>E-mail<input required type="email" value={email} onChange={(event) => onEmailChange(event.target.value)} placeholder="voce@empresa.com" /></label>
+          {isRegister && <label>Token de configuração inicial<input type="password" value={bootstrapToken} onChange={(event) => onBootstrapTokenChange(event.target.value)} placeholder="Use o token configurado na VM" autoComplete="off" /></label>}
+          <label>Senha<input required type="password" minLength={isRegister ? 12 : 1} value={password} onChange={(event) => onPasswordChange(event.target.value)} placeholder={isRegister ? 'Mínimo de 12 caracteres' : 'Sua senha'} /></label>
+          {message && <p className="auth-message">{message}</p>}
+          {error && <p className="auth-error">{error}</p>}
+          <button className="primary-button auth-submit" type="submit">{isRegister ? 'Salvar senha e continuar' : 'Entrar'}</button>
+        </form>
+        {!hasUsers && <button className="auth-switch" type="button" onClick={() => onModeChange(isRegister ? 'login' : 'register')}>{isRegister ? 'Já tenho uma conta' : 'Configurar conta do proprietário'}</button>}
+        <small className="auth-note">A senha é protegida por hash e não pode ser recuperada.</small>
+      </section>
+    </main>
+  )
 }
 
 function App() {
-  const [prospects, setProspects] = useState<Prospect[]>(() => {
-    const saved = localStorage.getItem('clareza-prospects')
-    return saved ? JSON.parse(saved) : initialProspects
-  })
+  const [prospects, setProspects] = useState<Prospect[]>(initialProspects)
   const [query, setQuery] = useState('')
   const [sectorFilter, setSectorFilter] = useState('Todos os nichos')
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -115,67 +189,101 @@ function App() {
   const [form, setForm] = useState<ProspectForm>(emptyForm)
   const [activePage, setActivePage] = useState<NavPage>('overview')
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const [leads, setLeads] = useState<Lead[]>(() => {
-    const saved = localStorage.getItem('clareza-leads')
-    if (saved) return JSON.parse(saved)
-    localStorage.setItem('clareza-leads', JSON.stringify(initialLeads))
-    return initialLeads
-  })
+  const [leads, setLeads] = useState<Lead[]>([])
   const [leadForm, setLeadForm] = useState<LeadForm>(emptyLeadForm)
   const [leadQuery, setLeadQuery] = useState('')
+  const [globalQuery, setGlobalQuery] = useState('')
+  const [leadTagInput, setLeadTagInput] = useState('')
+  const [interactionDrafts, setInteractionDrafts] = useState<Record<number, { type: LeadInteractionType; note: string }>>({})
   const [notificationsOpen, setNotificationsOpen] = useState(false)
-  const [followUps, setFollowUps] = useState<FollowUp[]>(() => {
-    const saved = localStorage.getItem('clareza-followups')
-    if (saved) return JSON.parse(saved)
-    localStorage.setItem('clareza-followups', JSON.stringify(initialFollowUps))
-    return initialFollowUps
-  })
-  const [profile, setProfile] = useState<UserProfile>(() => {
-    const saved = localStorage.getItem('clareza-profile')
-    return saved ? JSON.parse(saved) : defaultProfile
-  })
+  const [followUps, setFollowUps] = useState<FollowUp[]>([])
+  const [profile, setProfile] = useState<UserProfile>(defaultProfile)
   const [profileDraft, setProfileDraft] = useState<UserProfile>(profile)
   const [profileOpen, setProfileOpen] = useState(false)
-  const [workspaceName, setWorkspaceName] = useState(() => localStorage.getItem('newtype-workspace-name') || 'Agência Aurora')
-  const [users, setUsers] = useState<UserAccount[]>(() => {
-    const saved = localStorage.getItem('clareza-users')
-    if (saved) return JSON.parse(saved)
-    localStorage.setItem('clareza-users', JSON.stringify(defaultUsers))
-    return defaultUsers
-  })
-  const [sessionUserId, setSessionUserId] = useState<number | null>(() => {
-    const saved = localStorage.getItem('clareza-session')
-    if (saved) return Number(saved)
-    const demoUserId = defaultUsers[0]?.id ?? null
-    if (demoUserId) localStorage.setItem('clareza-session', String(demoUserId))
-    return demoUserId
-  })
-  const [authMode, setAuthMode] = useState<AuthMode>('login')
-  const [authName, setAuthName] = useState('')
-  const [authEmail, setAuthEmail] = useState('lucas@newtype.com')
-  const [authPassword, setAuthPassword] = useState('123456')
+  const [workspaceName, setWorkspaceName] = useState('Agência Aurora')
+  const [users, setUsers] = useState<UserAccount[]>([])
+  const [sessionUserId, setSessionUserId] = useState<number | null>(null)
+  const [authMode, setAuthMode] = useState<AuthMode>('register')
+  const [authName, setAuthName] = useState(ownerAccount.name)
+  const [authEmail, setAuthEmail] = useState(ownerAccount.email)
+  const [authPassword, setAuthPassword] = useState('')
+  const [bootstrapToken, setBootstrapToken] = useState('')
   const [authError, setAuthError] = useState('')
   const [authMessage, setAuthMessage] = useState('')
+  const [sessionReady, setSessionReady] = useState(false)
   const [newUser, setNewUser] = useState({ name: '', email: '', role: 'Colaborador', password: '' })
   const [newUserPhoto, setNewUserPhoto] = useState('')
   const [financialCompanyId, setFinancialCompanyId] = useState<number | null>(null)
   const [financialValue, setFinancialValue] = useState(0)
   const [financialMedia, setFinancialMedia] = useState(0)
-  const [companyChanges, setCompanyChanges] = useState<CompanyChange[]>(() => {
-    const saved = localStorage.getItem('newtype-company-changes')
-    return saved ? JSON.parse(saved) : []
-  })
+  const [companyChanges, setCompanyChanges] = useState<CompanyChange[]>([])
   const [financeSavedAt, setFinanceSavedAt] = useState<number | null>(null)
   const [accountPassword, setAccountPassword] = useState('')
+  const [backupFileName, setBackupFileName] = useState('')
+  const collectionQueues = useRef(new Map<string, Promise<void>>())
+  const currentUser = users.find((user) => user.id === sessionUserId)
+  const canManageWorkspace = Boolean(currentUser?.isOwner || currentUser?.role === 'Administrador')
+
+  const loadWorkspace = async (user: UserAccount) => {
+    let workspace = await apiRequest<SharedWorkspace>('/api/data')
+    if (!workspace.initialized && (user.isOwner || user.role === 'Administrador')) {
+      const legacyWorkspace = {
+        prospects: readLegacyData<Prospect[]>('clareza-prospects', []),
+        leads: readLegacyData<Lead[]>('clareza-leads', []),
+        followUps: readLegacyData<FollowUp[]>('clareza-followups', []),
+        companyChanges: readLegacyData<CompanyChange[]>('newtype-company-changes', []),
+        workspaceName: readLegacyData('newtype-workspace-name', 'Agência Aurora'),
+      }
+      workspace = await apiRequest<SharedWorkspace>('/api/data/import', { method: 'POST', body: JSON.stringify(legacyWorkspace) })
+      for (const key of ['clareza-prospects', 'clareza-leads', 'clareza-followups', 'newtype-company-changes', 'newtype-workspace-name']) localStorage.removeItem(key)
+    }
+    setProspects(workspace.prospects)
+    setLeads(workspace.leads)
+    setFollowUps(workspace.followUps)
+    setCompanyChanges(workspace.companyChanges)
+    setWorkspaceName(workspace.workspaceName)
+    localStorage.removeItem('clareza-profile')
+  }
+
+  const persistCollection = (collection: string, previous: Array<{ id: number }>, next: Array<{ id: number }>) => {
+    const oldById = new Map(previous.map((item) => [item.id, JSON.stringify(item)]))
+    const nextIds = new Set(next.map((item) => item.id))
+    const upsert = next.filter((item) => oldById.get(item.id) !== JSON.stringify(item))
+    const deleted = previous.filter((item) => !nextIds.has(item.id)).map((item) => item.id)
+    if (upsert.length === 0 && deleted.length === 0) return
+    const previousRequest = collectionQueues.current.get(collection) ?? Promise.resolve()
+    const nextRequest = previousRequest
+      .catch(() => {})
+      .then(() => apiRequest(`/api/data/${collection}`, { method: 'PATCH', body: JSON.stringify({ upsert, delete: deleted }) }))
+      .then(() => undefined)
+      .catch((error: Error) => window.alert(`Não foi possível salvar os dados no servidor: ${error.message}`))
+    collectionQueues.current.set(collection, nextRequest)
+  }
+
+  useEffect(() => {
+    localStorage.removeItem('clareza-users')
+    localStorage.removeItem('clareza-session')
+    void apiRequest<{ user: UserAccount | null; users: UserAccount[]; hasUsers: boolean }>('/api/auth/session')
+      .then(async (session) => {
+        setUsers(session.users)
+        setAuthMode(session.hasUsers ? 'login' : 'register')
+        if (session.user) {
+          await loadWorkspace(session.user)
+          startSession(session.user)
+        }
+      })
+      .catch((error: Error) => setAuthError(error.message))
+      .finally(() => setSessionReady(true))
+  }, [])
 
   const saveProspects = (next: Prospect[]) => {
+    persistCollection('prospects', prospects, next)
     setProspects(next)
-    localStorage.setItem('clareza-prospects', JSON.stringify(next))
   }
 
   const saveCompanyChanges = (next: CompanyChange[]) => {
+    persistCollection('companyChanges', companyChanges, next)
     setCompanyChanges(next)
-    localStorage.setItem('newtype-company-changes', JSON.stringify(next))
   }
 
   const recordCompanyChanges = (before: Prospect, after: Prospect) => {
@@ -203,7 +311,7 @@ function App() {
       prospect.content ? 'Sim' : 'Não',
       prospect.media ? 'Sim' : 'Não',
     ])
-    const csv = [header, ...rows].map((row) => row.map((value) => `"${value.replace(/"/g, '""')}"`).join(';')).join('\n')
+    const csv = toCsv([header, ...rows])
     const link = document.createElement('a')
     link.href = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' }))
     link.download = 'empresas-clareza.csv'
@@ -228,7 +336,7 @@ function App() {
 
   const downloadReportCsv = (kind: ReportKind) => {
     const report = reportData(kind)
-    const csv = [report.headers, ...report.rows].map((row) => row.map((value) => `"${value.replace(/"/g, '""')}"`).join(';')).join('\n')
+    const csv = toCsv([report.headers, ...report.rows])
     const link = document.createElement('a')
     link.href = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' }))
     link.download = `${kind === 'companies' ? 'relatorio-empresas' : 'relatorio-leads'}.csv`
@@ -238,8 +346,7 @@ function App() {
 
   const downloadReportExcel = (kind: ReportKind) => {
     const report = reportData(kind)
-    const cells = (row: string[]) => row.map((value) => `<td>${value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td>`).join('')
-    const html = `<table><thead><tr>${cells(report.headers)}</tr></thead><tbody>${report.rows.map((row) => `<tr>${cells(row)}</tr>`).join('')}</tbody></table>`
+    const html = htmlTable(report.headers, report.rows, true)
     const link = document.createElement('a')
     link.href = URL.createObjectURL(new Blob([`<html><head><meta charset="utf-8"></head><body>${html}</body></html>`], { type: 'application/vnd.ms-excel' }))
     link.download = `${kind === 'companies' ? 'relatorio-empresas' : 'relatorio-leads'}.xls`
@@ -251,8 +358,7 @@ function App() {
     const report = reportData(kind)
     const popup = window.open('', '_blank', 'width=1100,height=800')
     if (!popup) return
-    const cells = (row: string[]) => row.map((value) => `<td>${value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td>`).join('')
-    popup.document.write(`<html><head><title>${report.title}</title><style>body{font-family:Arial,sans-serif;color:#243331;padding:28px}h1{font-size:22px}p{color:#718179;font-size:12px}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #dce5dc;padding:8px;text-align:left}th{background:#edf3ed}</style></head><body><h1>${report.title}</h1><p>Gerado em ${new Intl.DateTimeFormat('pt-BR').format(new Date())}</p><table><thead><tr>${cells(report.headers)}</tr></thead><tbody>${report.rows.map((row) => `<tr>${cells(row)}</tr>`).join('')}</tbody></table></body></html>`)
+    popup.document.write(`<html><head><title>${escapeHtml(report.title)}</title><style>body{font-family:Arial,sans-serif;color:#243331;padding:28px}h1{font-size:22px}p{color:#718179;font-size:12px}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #dce5dc;padding:8px;text-align:left}th{background:#edf3ed}</style></head><body><h1>${escapeHtml(report.title)}</h1><p>Gerado em ${new Intl.DateTimeFormat('pt-BR').format(new Date())}</p>${htmlTable(report.headers, report.rows)}</body></html>`)
     popup.document.close()
     popup.focus()
     popup.print()
@@ -273,7 +379,7 @@ function App() {
     const logRows = report.changes.map((change) => [change.field, change.previousValue, change.newValue, new Intl.DateTimeFormat('pt-BR').format(new Date(change.changedAt))])
     if (format === 'csv') {
       const rows = [report.headers, ...report.rows, [], ['Histórico de alterações', 'Valor anterior', 'Valor novo', 'Data'], ...logRows]
-      const csv = rows.map((row) => row.map((value) => `"${value.replace(/"/g, '""')}"`).join(';')).join('\n')
+      const csv = toCsv(rows)
       const link = document.createElement('a')
       link.href = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' }))
       link.download = `relatorio-${company.company.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.csv`
@@ -281,11 +387,11 @@ function App() {
       URL.revokeObjectURL(link.href)
       return
     }
-    const cells = (row: string[]) => row.map((value) => `<td>${value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td>`).join('')
-    const tables = `<h2>Dados atuais</h2><table><thead><tr>${cells(report.headers)}</tr></thead><tbody>${report.rows.map((row) => `<tr>${cells(row)}</tr>`).join('')}</tbody></table><h2>Histórico de alterações</h2><table><thead><tr>${cells(['Campo', 'Valor anterior', 'Valor novo', 'Data'])}</tr></thead><tbody>${logRows.map((row) => `<tr>${cells(row)}</tr>`).join('')}</tbody></table>`
+    const tables = `<h2>Dados atuais</h2>${htmlTable(report.headers, report.rows)}<h2>Histórico de alterações</h2>${htmlTable(['Campo', 'Valor anterior', 'Valor novo', 'Data'], logRows)}`
     if (format === 'excel') {
+      const excelTables = `<h2>Dados atuais</h2>${htmlTable(report.headers, report.rows, true)}<h2>Histórico de alterações</h2>${htmlTable(['Campo', 'Valor anterior', 'Valor novo', 'Data'], logRows, true)}`
       const link = document.createElement('a')
-      link.href = URL.createObjectURL(new Blob([`<html><head><meta charset="utf-8"></head><body>${tables}</body></html>`], { type: 'application/vnd.ms-excel' }))
+      link.href = URL.createObjectURL(new Blob([`<html><head><meta charset="utf-8"></head><body>${excelTables}</body></html>`], { type: 'application/vnd.ms-excel' }))
       link.download = `relatorio-${company.company.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.xls`
       link.click()
       URL.revokeObjectURL(link.href)
@@ -293,7 +399,7 @@ function App() {
     }
     const popup = window.open('', '_blank', 'width=1100,height=800')
     if (!popup) return
-    popup.document.write(`<html><head><title>${report.title}</title><style>body{font-family:Arial,sans-serif;color:#243331;padding:28px}h1{font-size:22px}h2{font-size:15px;margin-top:28px}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #dce5dc;padding:8px;text-align:left}th{background:#edf3ed}</style></head><body><h1>${report.title}</h1>${tables}</body></html>`)
+    popup.document.write(`<html><head><title>${escapeHtml(report.title)}</title><style>body{font-family:Arial,sans-serif;color:#243331;padding:28px}h1{font-size:22px}h2{font-size:15px;margin-top:28px}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #dce5dc;padding:8px;text-align:left}th{background:#edf3ed}</style></head><body><h1>${escapeHtml(report.title)}</h1>${tables}</body></html>`)
     popup.document.close()
     popup.focus()
     popup.print()
@@ -332,24 +438,56 @@ function App() {
   }
 
   const saveLeads = (next: Lead[]) => {
+    persistCollection('leads', leads, next)
     setLeads(next)
-    localStorage.setItem('clareza-leads', JSON.stringify(next))
+  }
+
+  const addLeadTag = (tag: string) => {
+    const cleanTag = tag.trim().toLowerCase()
+    if (!cleanTag) return
+    setLeadForm((current) => ({ ...current, tags: current.tags.includes(cleanTag) ? current.tags : [...current.tags, cleanTag] }))
+    setLeadTagInput('')
+  }
+
+  const removeLeadTag = (tagToRemove: string) => {
+    setLeadForm((current) => ({ ...current, tags: current.tags.filter((tag) => tag !== tagToRemove) }))
   }
 
   const handleLeadSubmit = (event: FormEvent) => {
     event.preventDefault()
     if (!leadForm.company.trim() || !leadForm.email.trim() || !leadForm.phone.trim() || !leadForm.sector.trim() || !leadForm.location.trim()) return
-    saveLeads([{ ...leadForm, id: Date.now(), createdAt: new Date().toISOString() }, ...leads])
+    const nextLead: Lead = {
+      ...leadForm,
+      id: Date.now(),
+      tags: leadForm.tags.map((tag) => tag.trim().toLowerCase()),
+      priority: leadForm.priority,
+      status: leadForm.status,
+      interactions: [],
+      createdAt: new Date().toISOString(),
+    }
+    saveLeads([nextLead, ...leads])
     setLeadForm(emptyLeadForm)
+    setLeadTagInput('')
   }
 
   const deleteLead = (id: number) => {
     saveLeads(leads.filter((lead) => lead.id !== id))
   }
 
+  const addLeadInteraction = (leadId: number) => {
+    const draft = interactionDrafts[leadId]
+    if (!draft || !draft.note.trim()) return
+    const nextLead = leads.map((lead) => lead.id === leadId ? {
+      ...lead,
+      interactions: [{ id: Date.now(), type: draft.type, note: draft.note.trim(), createdAt: new Date().toISOString() }, ...lead.interactions],
+    } : lead)
+    saveLeads(nextLead)
+    setInteractionDrafts((current) => ({ ...current, [leadId]: { type: 'Observação', note: '' } }))
+  }
+
   const saveFollowUps = (next: FollowUp[]) => {
+    persistCollection('followUps', followUps, next)
     setFollowUps(next)
-    localStorage.setItem('clareza-followups', JSON.stringify(next))
   }
 
   const completePipelineAction = (lead: Lead) => {
@@ -369,13 +507,20 @@ function App() {
     setProfileOpen(true)
   }
 
-  const saveProfile = (event: FormEvent) => {
+  const saveProfile = async (event: FormEvent) => {
     event.preventDefault()
     const next = { ...profileDraft, name: profileDraft.name.trim() || defaultProfile.name }
-    setProfile(next)
-    localStorage.setItem('clareza-profile', JSON.stringify(next))
-    if (sessionUserId) saveUsers(users.map((user) => user.id === sessionUserId ? { ...user, name: next.name, role: next.role, email: next.email, status: next.status, timezone: next.timezone, photo: next.photo } : user))
-    setProfileOpen(false)
+    try {
+      const result = await apiRequest<AuthResponse>('/api/users/me', { method: 'PATCH', body: JSON.stringify(next) })
+      setUsers(result.users)
+      const updatedProfile = { name: result.user.name, role: result.user.role, email: result.user.email, status: result.user.status, timezone: result.user.timezone, photo: result.user.photo }
+      setProfile(updatedProfile)
+      setProfileDraft(updatedProfile)
+      localStorage.removeItem('clareza-profile')
+      setProfileOpen(false)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Não foi possível salvar o perfil.')
+    }
   }
 
   const handleProfilePhoto = (event: ChangeEvent<HTMLInputElement>) => {
@@ -394,14 +539,9 @@ function App() {
     reader.readAsDataURL(file)
   }
 
-  const saveUsers = (next: UserAccount[]) => {
-    setUsers(next)
-    localStorage.setItem('clareza-users', JSON.stringify(next))
-  }
-
   const startSession = (user: UserAccount) => {
+    setBootstrapToken('')
     setSessionUserId(user.id)
-    localStorage.setItem('clareza-session', String(user.id))
     setProfile({ name: user.name, role: user.role, email: user.email, status: user.status, timezone: user.timezone, photo: user.photo })
     setProfileDraft({ name: user.name, role: user.role, email: user.email, status: user.status, timezone: user.timezone, photo: user.photo })
     setAuthEmail('')
@@ -409,77 +549,138 @@ function App() {
     setAuthError('')
   }
 
-  const handleAuthSubmit = (event: FormEvent) => {
+  const handleAuthSubmit = async (event: FormEvent) => {
     event.preventDefault()
-    const email = authEmail.trim().toLowerCase()
-    if (!email || !authPassword) return
-    if (authMode === 'register') {
-      if (!authName.trim()) {
-        setAuthError('Informe seu nome para criar a conta.')
-        return
-      }
-      if (users.some((user) => user.email.toLowerCase() === email)) {
-        setAuthError('Já existe uma conta com este e-mail.')
-        return
-      }
-      const user: UserAccount = { id: Date.now(), name: authName.trim(), role: 'Administrador', email, password: authPassword, status: 'Disponível', timezone: 'Brasília (GMT-3)', photo: '' }
-      saveUsers([...users, user])
-      setAuthMode('login')
-      setAuthName('')
-      setAuthPassword('')
-      setAuthError('')
-      setAuthMessage('Conta criada. Entre com seu e-mail e senha.')
-      return
+    setAuthError('')
+    setAuthMessage('')
+    try {
+      const endpoint = authMode === 'register' ? '/api/auth/register' : '/api/auth/login'
+      const result = await apiRequest<AuthResponse>(endpoint, {
+        method: 'POST',
+        body: JSON.stringify({ name: authName.trim(), email: authEmail.trim().toLowerCase(), password: authPassword, bootstrapToken }),
+      })
+      setUsers(result.users)
+      await loadWorkspace(result.user)
+      startSession(result.user)
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'Não foi possível autenticar a conta.')
     }
-    const user = users.find((item) => item.email.toLowerCase() === email && item.password === authPassword)
-    if (!user) {
-      setAuthError('E-mail ou senha inválidos.')
-      setAuthMessage('')
-      return
-    }
-    startSession(user)
   }
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await apiRequest('/api/auth/logout', { method: 'POST' })
+    } catch {
+      setAuthError('A sessão local foi encerrada.')
+    }
     setSessionUserId(null)
-    localStorage.removeItem('clareza-session')
     setAuthMode('login')
   }
 
-  const addUser = (event: FormEvent) => {
+  const addUser = async (event: FormEvent) => {
     event.preventDefault()
-    const email = newUser.email.trim().toLowerCase()
-    if (!newUser.name.trim() || !email || !newUser.password) return
-    if (users.some((user) => user.email.toLowerCase() === email)) return
-    saveUsers([...users, { id: Date.now(), name: newUser.name.trim(), role: newUser.role, email, password: newUser.password, status: 'Disponível', timezone: 'Brasília (GMT-3)', photo: newUserPhoto }])
-    setNewUser({ name: '', email: '', role: 'Colaborador', password: '' })
-    setNewUserPhoto('')
+    if (!canManageWorkspace) return
+    try {
+      const result = await apiRequest<{ users: UserAccount[] }>('/api/users', {
+        method: 'POST',
+        body: JSON.stringify({ ...newUser, photo: newUserPhoto }),
+      })
+      setUsers(result.users)
+      setNewUser({ name: '', email: '', role: 'Colaborador', password: '' })
+      setNewUserPhoto('')
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Não foi possível cadastrar o usuário.')
+    }
   }
 
-  const deleteUser = (userId: number) => {
+  const deleteUser = async (userId: number) => {
     const currentUser = users.find((user) => user.id === sessionUserId)
     const user = users.find((item) => item.id === userId)
-    if (!currentUser || !user || currentUser.email.toLowerCase() !== 'lucasthyagootk@gmail.com' || user.id === sessionUserId) return
+    if (!canManageWorkspace || !user || user.id === sessionUserId) return
     if (!window.confirm(`Excluir o usuário ${user.name}?`)) return
-    saveUsers(users.filter((item) => item.id !== userId))
+    try {
+      const result = await apiRequest<{ users: UserAccount[] }>(`/api/users/${userId}`, { method: 'DELETE' })
+      setUsers(result.users)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Não foi possível excluir o usuário.')
+    }
   }
 
-  const updateAccount = (event: FormEvent) => {
+  const updateAccount = async (event: FormEvent) => {
     event.preventDefault()
     if (!sessionUserId) return
-    const nextEmail = profileDraft.email.trim().toLowerCase()
-    if (!nextEmail) return
-    const nextUsers = users.map((user) => user.id === sessionUserId ? { ...user, name: profileDraft.name.trim() || user.name, role: profileDraft.role, email: nextEmail, status: profileDraft.status, timezone: profileDraft.timezone, photo: profileDraft.photo, password: accountPassword || user.password } : user)
-    saveUsers(nextUsers)
-    setProfile({ ...profileDraft, email: nextEmail })
-    setAccountPassword('')
+    try {
+      const result = await apiRequest<AuthResponse>('/api/users/me', {
+        method: 'PATCH',
+        body: JSON.stringify({ ...profileDraft, email: profileDraft.email.trim().toLowerCase(), password: accountPassword || undefined }),
+      })
+      setUsers(result.users)
+      const updatedProfile = { name: result.user.name, role: result.user.role, email: result.user.email, status: result.user.status, timezone: result.user.timezone, photo: result.user.photo }
+      setProfile(updatedProfile)
+      setProfileDraft(updatedProfile)
+      localStorage.removeItem('clareza-profile')
+      setAccountPassword('')
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Não foi possível atualizar a conta.')
+    }
   }
 
   const saveWorkspaceName = (event: FormEvent) => {
     event.preventDefault()
+    if (!canManageWorkspace) return
     const nextName = workspaceName.trim() || 'Agência Aurora'
-    setWorkspaceName(nextName)
-    localStorage.setItem('newtype-workspace-name', nextName)
+    void apiRequest<SharedWorkspace>('/api/data/workspace', { method: 'PATCH', body: JSON.stringify({ workspaceName: nextName }) })
+      .then((workspace) => setWorkspaceName(workspace.workspaceName))
+      .catch((error: Error) => window.alert(`Não foi possível salvar o workspace: ${error.message}`))
+  }
+
+  const downloadBackup = async () => {
+    if (!canManageWorkspace) return
+    try {
+      const workspace = await apiRequest<SharedWorkspace>('/api/data')
+      const backup = { version: 2, exportedAt: new Date().toISOString(), ...workspace }
+      const link = document.createElement('a')
+      link.href = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' }))
+      link.download = `newtype-crm-backup-${new Date().toISOString().slice(0, 10)}.json`
+      link.click()
+      URL.revokeObjectURL(link.href)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Não foi possível gerar o backup.')
+    }
+  }
+
+  const restoreBackup = (event: ChangeEvent<HTMLInputElement>) => {
+    if (!canManageWorkspace) return
+    const file = event.target.files?.[0]
+    if (!file) return
+    setBackupFileName(file.name)
+    const reader = new FileReader()
+    reader.onload = () => {
+      try {
+        const backup = JSON.parse(String(reader.result))
+        const workspace = {
+          prospects: backup.prospects,
+          leads: backup.leads,
+          followUps: backup.followUps,
+          companyChanges: Array.isArray(backup.companyChanges) ? backup.companyChanges : [],
+          workspaceName: typeof backup.workspaceName === 'string' ? backup.workspaceName : 'Agência Aurora',
+        }
+        void apiRequest<SharedWorkspace>('/api/data/restore', { method: 'POST', body: JSON.stringify({ workspace }) })
+          .then((restored) => {
+            setProspects(restored.prospects)
+            setLeads(restored.leads)
+            setFollowUps(restored.followUps)
+            setCompanyChanges(restored.companyChanges)
+            setWorkspaceName(restored.workspaceName)
+            window.alert('Backup restaurado com sucesso.')
+          })
+          .catch((error: Error) => window.alert(`Não foi possível restaurar o backup: ${error.message}`))
+      } catch {
+        window.alert('Não foi possível restaurar este arquivo de backup.')
+      }
+    }
+    reader.readAsText(file)
+    event.target.value = ''
   }
 
   const saveCompanyFinance = (event: FormEvent) => {
@@ -500,7 +701,12 @@ function App() {
     setFinancialMedia(prospect?.weeklyMediaInvestment || 0)
   }
 
-  const visibleLeads = leads.filter((lead) => `${lead.company} ${lead.email} ${lead.phone} ${lead.sector} ${lead.location}`.toLowerCase().includes(leadQuery.toLowerCase()))
+  const visibleLeads = leads.filter((lead) => {
+    const searchable = `${lead.company} ${lead.email} ${lead.phone} ${lead.sector} ${lead.location} ${lead.owner} ${lead.tags.join(' ')} ${lead.status}`.toLowerCase()
+    const queryMatch = (!leadQuery && !globalQuery) || searchable.includes(normalizeText(leadQuery || globalQuery))
+    const globalMatch = !globalQuery || searchable.includes(normalizeText(globalQuery))
+    return queryMatch && globalMatch
+  })
   const today = new Date().toISOString().slice(0, 10)
   const dueLeads = leads.filter((lead) => lead.nextContact && lead.nextContact <= today)
   const notifications = dueLeads.map((lead) => ({ id: lead.id, title: `Contatar ${lead.company}`, detail: lead.nextContact === today ? 'Contato agendado para hoje' : 'Contato atrasado' }))
@@ -531,12 +737,11 @@ function App() {
   }
 
   const currentPage = pageInfo[activePage]
-  const currentUser = users.find((user) => user.id === sessionUserId)
-
-  if (!currentUser) return <AuthScreen mode={authMode} name={authName} email={authEmail} password={authPassword} error={authError} message={authMessage} hasUsers={users.length > 0} onModeChange={(mode) => { setAuthMode(mode); setAuthError(''); setAuthMessage('') }} onSubmit={handleAuthSubmit} onNameChange={setAuthName} onEmailChange={setAuthEmail} onPasswordChange={setAuthPassword} />
+  if (!sessionReady) return <main className="auth-shell" aria-busy="true" />
+  if (!currentUser) return <AuthScreen mode={authMode} name={authName} email={authEmail} password={authPassword} bootstrapToken={bootstrapToken} error={authError} message={authMessage} hasUsers={users.length > 0} onModeChange={(mode) => { setAuthMode(mode); setAuthError(''); setAuthMessage('') }} onSubmit={handleAuthSubmit} onNameChange={setAuthName} onEmailChange={setAuthEmail} onPasswordChange={setAuthPassword} onBootstrapTokenChange={setBootstrapToken} />
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${canManageWorkspace ? 'administrator-access' : 'collaborator-access'}`}>
       {editingId && drawerOpen && <button className="drawer-delete-button" type="button" onClick={() => setConfirmDelete(true)}>Excluir empresa</button>}
       {confirmDelete && editingId && <div className="confirm-backdrop" role="presentation"><div className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-title"><div className="confirm-icon">!</div><h2 id="delete-title">Excluir empresa?</h2><p>Essa ação removerá <strong>{form.company}</strong> da sua base de empresas.</p><div className="confirm-actions"><button type="button" className="secondary-button" onClick={() => setConfirmDelete(false)}>Cancelar</button><button type="button" className="danger-button" onClick={deleteProspect}>Excluir empresa</button></div></div></div>}
       <aside className="sidebar">
@@ -586,16 +791,20 @@ function App() {
                 <label>Origem do lead<select value={leadForm.source} onChange={(event) => setLeadForm({ ...leadForm, source: event.target.value })}><option value="">Selecione uma origem</option><option>Indicação</option><option>Instagram</option><option>Google</option><option>Site</option><option>Evento</option><option>Outro</option></select></label>
                 <label>Responsável<input value={leadForm.owner} onChange={(event) => setLeadForm({ ...leadForm, owner: event.target.value })} placeholder="Ex.: Lucas Silva" /></label>
                 <label>Próximo contato<input type="date" value={leadForm.nextContact} onChange={(event) => setLeadForm({ ...leadForm, nextContact: event.target.value })} /></label>
+                <label>Prioridade<select value={leadForm.priority} onChange={(event) => setLeadForm({ ...leadForm, priority: event.target.value as Lead['priority'] })}><option>Alta</option><option>Média</option><option>Baixa</option></select></label>
+                <label>Status<select value={leadForm.status} onChange={(event) => setLeadForm({ ...leadForm, status: event.target.value as Lead['status'] })}><option>Novo</option><option>Qualificando</option><option>Agendado</option><option>Fechado</option><option>Perdido</option></select></label>
+                <label className="lead-tags-field">Tags<div className="tag-input-row"><input value={leadTagInput} onChange={(event) => setLeadTagInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addLeadTag(leadTagInput) } }} placeholder="Adicionar tag" /><button type="button" className="tag-button" onClick={() => addLeadTag(leadTagInput)}>＋</button></div>{leadForm.tags.length > 0 ? <div className="tag-chip-list">{leadForm.tags.map((tag) => <span className="tag-chip" key={tag}>{tag}<button type="button" onClick={() => removeLeadTag(tag)} aria-label={`Remover tag ${tag}`}>×</button></span>)}</div> : <small className="tag-empty">Nenhuma tag adicionada</small>}</label>
                 <label className="lead-notes">Observações<textarea value={leadForm.notes} onChange={(event) => setLeadForm({ ...leadForm, notes: event.target.value })} placeholder="Contexto, necessidade ou oportunidade identificada..." /></label>
               </div>
             </form>
             <div className="leads-list-header"><div><h2>Leads cadastrados</h2><p>Consulte os contatos e seus dados de qualificação.</p></div><div className="lead-search"><span>⌕</span><input value={leadQuery} onChange={(event) => setLeadQuery(event.target.value)} placeholder="Buscar lead..." /></div></div>
-            <div className="lead-list">{visibleLeads.map((lead) => <article className="lead-card" key={lead.id}><div className="lead-card-main"><span className="company-avatar">{initials(lead.company)}</span><div><h3>{lead.company}</h3><p>{lead.sector} <span>•</span> {lead.location}</p></div></div><div className="lead-contact"><span>{lead.email}</span><span>{lead.phone}</span></div><div className="lead-meta"><span>{lead.source || 'Origem não informada'}</span>{lead.nextContact && <small>Próximo contato: {new Intl.DateTimeFormat('pt-BR').format(new Date(`${lead.nextContact}T12:00:00`))}</small>}</div><button className="lead-delete" type="button" onClick={() => deleteLead(lead.id)} aria-label={`Excluir ${lead.company}`} title="Excluir lead">×</button></article>)}{visibleLeads.length === 0 && <div className="empty-state"><strong>{leads.length === 0 ? 'Nenhum lead cadastrado' : 'Nenhum lead encontrado'}</strong><span>{leads.length === 0 ? 'Use o formulário acima para adicionar seu primeiro contato.' : 'Tente buscar por outro termo.'}</span></div>}</div>
+            <div className="lead-list">{visibleLeads.map((lead) => <article className="lead-card" key={lead.id}><div className="lead-card-main"><span className="company-avatar">{initials(lead.company)}</span><div><h3>{lead.company}</h3><p>{lead.sector} <span>•</span> {lead.location}</p></div></div><div className="lead-contact"><span>{lead.email}</span><span>{lead.phone}</span><div className="lead-badges"><span className={`priority-badge ${lead.priority.toLowerCase()}`}>{lead.priority}</span><span className={`status-badge ${lead.status.toLowerCase().replace(/\s+/g, '-')}`}>{lead.status}</span></div></div><div className="lead-meta"><div className="lead-source-row"><span>{lead.source || 'Origem não informada'}</span>{lead.tags.length > 0 && <div className="tag-chip-list compact">{lead.tags.map((tag) => <span className="tag-chip" key={`${lead.id}-${tag}`}>{tag}</span>)}</div>}</div>{lead.nextContact && <small>Próximo contato: {new Intl.DateTimeFormat('pt-BR').format(new Date(`${lead.nextContact}T12:00:00`))}</small>}<div className="lead-history-preview">{lead.interactions.length > 0 ? lead.interactions.slice(0, 2).map((interaction) => <div key={interaction.id}><strong>{interaction.type}</strong><span>{interaction.note}</span></div>) : <div className="lead-history-empty"><strong>Sem interações ainda</strong><span>Registre a primeira atualização.</span></div>}</div></div><div className="lead-actions"><div className="lead-interaction-form"><select value={interactionDrafts[lead.id]?.type ?? 'Observação'} onChange={(event) => setInteractionDrafts((current) => ({ ...current, [lead.id]: { ...(current[lead.id] || { type: 'Observação', note: '' }), type: event.target.value as LeadInteractionType } }))}><option>Ligação</option><option>WhatsApp</option><option>Reunião</option><option>Observação</option></select><input value={interactionDrafts[lead.id]?.note ?? ''} onChange={(event) => setInteractionDrafts((current) => ({ ...current, [lead.id]: { ...(current[lead.id] || { type: 'Observação', note: '' }), note: event.target.value } }))} placeholder="Resumo da interação..." /><button type="button" onClick={() => addLeadInteraction(lead.id)}>Salvar</button></div><button className="lead-delete" type="button" onClick={() => deleteLead(lead.id)} aria-label={`Excluir ${lead.company}`} title="Excluir lead">×</button></div></article>)}{visibleLeads.length === 0 && <div className="empty-state"><strong>{leads.length === 0 ? 'Nenhum lead cadastrado' : 'Nenhum lead encontrado'}</strong><span>{leads.length === 0 ? 'Use o formulário acima para adicionar seu primeiro contato.' : 'Tente buscar por outro termo.'}</span></div>}</div>
           </section> : activePage === 'pipeline' ? <section className="pipeline-page"><div className="pipeline-heading"><div><p className="eyebrow">OPERAÇÃO</p><h1>Pipeline</h1><p className="subtitle">Organize as próximas ações para transformar leads em oportunidades.</p></div><div className="pipeline-count"><strong>{pipelineLeads.length}</strong><span>ações cadastradas</span></div></div><div className="pipeline-list"><div className="pipeline-list-header"><div><h2>Próximas ações</h2><p>Empresas com contato previsto ou em acompanhamento.</p></div></div>{pipelineLeads.length > 0 ? pipelineLeads.map((lead) => <article className="pipeline-item" key={lead.id}><div className="pipeline-company"><span className="company-avatar">{initials(lead.company)}</span><div><h3>{lead.company}</h3><p>{lead.company}</p></div></div><div className="pipeline-contact"><small>CONTATO</small><strong>{lead.email}</strong><span>{lead.phone}</span></div><div className="pipeline-action"><small>AÇÃO</small><strong>{lead.notes || 'Realizar contato de qualificação'}</strong></div><div className="pipeline-owner"><small>RESPONSÁVEL</small><strong>{lead.owner || 'Não definido'}</strong></div><div className="pipeline-date"><small>DATA</small><strong className={lead.nextContact < today ? 'overdue' : ''}>{new Intl.DateTimeFormat('pt-BR').format(new Date(`${lead.nextContact}T12:00:00`))}</strong><span>{lead.nextContact < today ? 'Atrasado' : lead.nextContact === today ? 'Hoje' : 'Agendado'}</span></div><button className="pipeline-done" type="button" onClick={() => completePipelineAction(lead)}>Feito</button></article>) : <div className="empty-state"><strong>Nenhuma ação no pipeline</strong><span>Cadastre um próximo contato em Leads para acompanhar uma oportunidade aqui.</span></div>}</div></section> : activePage === 'followups' ? <section className="followups-page"><div className="followups-heading"><div><p className="eyebrow">OPERAÇÃO</p><h1>Follow-ups</h1><p className="subtitle">Configure quando cada contato deverá acontecer novamente.</p></div><div className="pipeline-count"><strong>{followUps.length}</strong><span>ações concluídas</span></div></div><div className="followup-list">{followUps.length > 0 ? followUps.map((followUp) => <article className="followup-item" key={followUp.id}><div className="pipeline-company"><span className="company-avatar">{initials(followUp.company)}</span><div><h3>{followUp.company}</h3><p>{followUp.email} <span>•</span> {followUp.phone}</p></div></div><div className="followup-action"><small>AÇÃO CONCLUÍDA</small><strong>{followUp.action}</strong><span>Responsável: {followUp.owner || 'Não definido'}</span></div><label className="followup-date"><small>PRÓXIMO CONTATO</small><input type="date" value={followUp.nextContact} onChange={(event) => scheduleFollowUp(followUp.id, event.target.value)} /><span>{followUp.nextContact ? 'Agendado' : 'Defina uma data'}</span></label></article>) : <div className="empty-state"><strong>Nenhum follow-up pendente</strong><span>Conclua uma ação no Pipeline para configurá-la aqui.</span></div>}</div></section> : <section className="placeholder-page"><p className="eyebrow">{currentPage.group.toUpperCase()}</p><div className="placeholder-icon">{activePage === 'reports' ? '▦' : '⚙'}</div><h1>{currentPage.label}</h1><p>{currentPage.description}</p><span>Esta área está pronta para receber os próximos recursos.</span></section>}
         </div>
         {activePage === 'reports' && <section className="report-panel"><div className="report-heading"><div><p className="eyebrow">GESTÃO</p><h1>Relatórios</h1><p className="subtitle">Exporte os dados do CRM no formato que precisar.</p></div></div><div className="report-cards"><article className="report-card"><div className="report-card-icon">◎</div><div><h2>Empresas</h2><p>Dados cadastrais, faturamento, nicho e qualificação.</p></div><div className="report-actions"><button type="button" onClick={() => downloadReportCsv('companies')}>CSV</button><button type="button" onClick={() => downloadReportExcel('companies')}>Excel</button><button type="button" onClick={() => printReport('companies')}>PDF</button></div></article><article className="report-card"><div className="report-card-icon blue">＋</div><div><h2>Leads</h2><p>Contatos, origem, responsável e próximos contatos.</p></div><div className="report-actions"><button type="button" onClick={() => downloadReportCsv('leads')}>CSV</button><button type="button" onClick={() => downloadReportExcel('leads')}>Excel</button><button type="button" onClick={() => printReport('leads')}>PDF</button></div></article></div></section>}
         {activePage === 'settings' && <section className="settings-panel"><div className="settings-heading"><div><p className="eyebrow">GESTÃO</p><h1>Configurações</h1><p className="subtitle">Administre sua conta e as pessoas que acessam o workspace.</p></div><button className="logout-button" type="button" onClick={logout}>Sair da conta</button></div><div className="settings-grid"><form className="settings-card" onSubmit={updateAccount}><div className="settings-card-heading"><div><h2>Minha conta</h2><p>Atualize seus dados de acesso.</p></div></div><label>Nome exibido<input required value={profileDraft.name} onChange={(event) => setProfileDraft({ ...profileDraft, name: event.target.value })} /></label><label>E-mail de acesso<input required type="email" value={profileDraft.email} onChange={(event) => setProfileDraft({ ...profileDraft, email: event.target.value })} placeholder="voce@empresa.com" /></label><label>Nova senha<input type="password" minLength={6} value={accountPassword} onChange={(event) => setAccountPassword(event.target.value)} placeholder="Deixe em branco para manter" /></label><button className="primary-button" type="submit">Salvar alterações</button></form><div className="settings-card"><div className="settings-card-heading"><div><h2>Usuários do workspace</h2><p>Cadastre pessoas para utilizar o CRM.</p></div><span className="user-count">{users.length}</span></div><form className="new-user-form" onSubmit={addUser}><input required value={newUser.name} onChange={(event) => setNewUser({ ...newUser, name: event.target.value })} placeholder="Nome completo" /><input required type="email" value={newUser.email} onChange={(event) => setNewUser({ ...newUser, email: event.target.value })} placeholder="E-mail" /><select value={newUser.role} onChange={(event) => setNewUser({ ...newUser, role: event.target.value })}><option>Colaborador</option><option>Administrador</option><option>Gestor</option></select><input required type="password" minLength={6} value={newUser.password} onChange={(event) => setNewUser({ ...newUser, password: event.target.value })} placeholder="Senha inicial" /><label className="new-user-photo">Foto do perfil<input type="file" accept="image/*" onChange={handleNewUserPhoto} /><span>{newUserPhoto ? 'Foto selecionada' : 'Escolher foto'}</span></label><button className="secondary-button" type="submit">Adicionar usuário</button></form><div className="user-list">{users.map((user) => <div className="user-row" key={user.id}><span className="company-avatar">{user.photo ? <img src={user.photo} alt="" /> : initials(user.name)}</span><div><strong>{user.name}</strong><small>{user.email} · {user.role}</small></div>{user.id !== sessionUserId && currentUser?.email.toLowerCase() === 'lucasthyagootk@gmail.com' && <button className="user-delete" type="button" onClick={() => deleteUser(user.id)}>Excluir</button>}{user.id === sessionUserId && <span className="current-user-tag">Você</span>}</div>)}</div></div></div></section>}
         {activePage === 'settings' && <form className="workspace-settings" onSubmit={saveWorkspaceName}><div><h2>Workspace</h2><p>Defina o nome da agência exibido no menu lateral.</p></div><div className="workspace-settings-controls"><input aria-label="Nome da agência" value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} /><button className="primary-button" type="submit">Salvar nome</button></div></form>}
+        {activePage === 'settings' && <section className="backup-panel"><div><h2>Backup dos dados</h2><p>Exporte tudo para um arquivo ou restaure um backup anterior neste navegador.</p></div><div className="backup-actions"><button className="secondary-button" type="button" onClick={downloadBackup}>Baixar backup</button><label className="restore-button"><span>{backupFileName || 'Escolher arquivo'}</span><input type="file" accept="application/json,.json" aria-label="Selecionar arquivo de backup" onChange={restoreBackup} /></label></div></section>}
       {activePage === 'companies' && <><form className="company-finance-panel" onSubmit={saveCompanyFinance}><div><p className="eyebrow">GESTÃO FINANCEIRA</p><h2>Valores por empresa</h2><p>Registre quanto cada cliente paga e quanto investe em mídia por semana.</p></div><div className="company-finance-fields"><select required value={financialCompanyId || ''} onChange={(event) => selectFinancialCompany(Number(event.target.value))}><option value="">Selecione uma empresa</option>{prospects.map((prospect) => <option key={prospect.id} value={prospect.id}>{prospect.company}</option>)}</select><label>Valor que paga<input type="number" min="0" value={financialValue || ''} onChange={(event) => setFinancialValue(Number(event.target.value))} placeholder="R$ 0" /></label><label>Mídia por semana<input type="number" min="0" value={financialMedia || ''} onChange={(event) => setFinancialMedia(Number(event.target.value))} placeholder="R$ 0" /></label><button className="primary-button" type="submit">Salvar valores</button></div></form>{selectedFinancialCompany && <section className="company-history-panel"><div className="company-history-heading"><div><p className="eyebrow">HISTÓRICO</p><h2>Registro de {selectedFinancialCompany.company}</h2><p>Alterações recentes nos dados desta empresa.</p></div><div className="company-report-actions"><button type="button" onClick={() => downloadCompanyReport(selectedFinancialCompany, 'csv')}>CSV</button><button type="button" onClick={() => downloadCompanyReport(selectedFinancialCompany, 'excel')}>Excel</button><button type="button" onClick={() => downloadCompanyReport(selectedFinancialCompany, 'pdf')}>PDF</button></div></div>{selectedCompanyChanges.length > 0 ? <div className="company-history-list">{selectedCompanyChanges.map((change, index) => <div className={`company-change ${index === 0 ? 'latest' : ''}`} key={change.id}><div><strong>{change.field}</strong><small>{new Intl.DateTimeFormat('pt-BR').format(new Date(change.changedAt))}</small></div><span>{change.previousValue}</span><b>→</b><strong className="new-value">{change.newValue}</strong></div>)}</div> : <div className="empty-state"><strong>Nenhuma alteração registrada</strong><span>As próximas mudanças aparecerão aqui.</span></div>}</section>}</>}
       </main>
 

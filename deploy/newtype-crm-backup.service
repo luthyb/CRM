@@ -1,0 +1,17 @@
+[Unit]
+Description=Create a consistent NewType CRM SQLite backup
+After=network.target
+
+[Service]
+Type=oneshot
+User=crm
+Group=crm
+WorkingDirectory=/opt/newtype-crm
+EnvironmentFile=/etc/newtype-crm/crm.env
+ExecStart=/usr/bin/node /opt/newtype-crm/scripts/backup.mjs
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/newtype-crm /var/backups/newtype-crm
