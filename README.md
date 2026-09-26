@@ -37,4 +37,8 @@ O timer gera snapshots SQLite e cópias de `accounts.json` diariamente e mantém
 
 Para restaurar um conjunto, pare `newtype-crm.service`, copie o arquivo `.sqlite` escolhido para `${CRM_DATA_DIR}/crm.sqlite` e o arquivo correspondente `.accounts.json` para `${CRM_DATA_DIR}/accounts.json`, ajuste proprietário/permissões para `crm` e inicie o serviço novamente. Faça isso primeiro em uma VM de teste; a restauração substitui os dados atuais.
 
+## Recuperar senha do administrador
+
+Não é possível ler uma senha existente do hash. Em desenvolvimento, pare o servidor com `Ctrl+C` e execute `npm.cmd run reset-password -- lucasthyagootk@gmail.com` no terminal da pasta do projeto. Digite e confirme a nova senha no terminal; os caracteres não aparecem. Use 12 caracteres ou mais. Para produção, pare o serviço e rode o script como usuário `crm`, apontando `CRM_DATA_DIR` para o diretório persistente. O comando atualiza o hash localmente e invalida todas as sessões anteriores; nunca envie a senha por chat ou coloque-a no comando.
+
 Os dados locais antigos são migrados uma única vez no primeiro acesso do administrador se o navegador atual ainda tiver esses dados. Ao trocar de origem/domínio, restaure o arquivo JSON exportado no CRM antigo; os dados de conta (`accounts.json`) são separados e precisam ser transferidos/configurados à parte.

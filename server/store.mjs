@@ -104,7 +104,15 @@ export function createStore(dataDirectory) {
   }
 
   const setWorkspaceName = (name) => {
-    database.prepare("UPDATE crm_settings SET value = ? WHERE key = 'workspace_name'").run(name)
+    database.exec('BEGIN IMMEDIATE')
+    try {
+      database.prepare("UPDATE crm_settings SET value = ? WHERE key = 'workspace_name'").run(name)
+      database.prepare("UPDATE crm_settings SET value = 'true' WHERE key = 'workspace_initialized'").run()
+      database.exec('COMMIT')
+    } catch (error) {
+      database.exec('ROLLBACK')
+      throw error
+    }
   }
 
   const createSession = (tokenHash, userId, expiresAt) => {

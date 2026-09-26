@@ -121,6 +121,64 @@ button { cursor: pointer; }
 .profile { width: 100%; border: 0; background: transparent; color: inherit; text-align: left; font: inherit; cursor: pointer; }.profile-avatar { overflow: hidden; flex-shrink: 0; }.profile-avatar img, .top-avatar img, .profile-panel-avatar img { width: 100%; height: 100%; display: block; object-fit: cover; }.top-avatar { display: grid; place-items: center; padding: 0; overflow: hidden; }
 .profile-panel { position: absolute; top: 42px; right: 0; z-index: 9; width: 330px; display: flex; flex-direction: column; gap: 13px; border: 1px solid #e2e9e3; border-radius: 10px; background: #fff; box-shadow: 0 14px 35px rgba(27, 46, 38, .14); padding: 17px; animation: notification-in .16s ease-out; }.profile-panel-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; padding-bottom: 12px; border-bottom: 1px solid #edf0ed; }.profile-panel-heading strong { display: block; color: #30443a; font-size: 13px; }.profile-panel-heading span { display: block; max-width: 220px; margin-top: 4px; color: #9aa9a1; font-size: 10px; line-height: 1.4; }.profile-panel-heading > button { width: 23px; height: 23px; border: 1px solid #e3e9e3; border-radius: 50%; background: #fff; color: #72847b; font-size: 17px; line-height: 17px; }.profile-photo-row { display: flex; align-items: center; gap: 10px; }.profile-panel-avatar { width: 44px; height: 44px; display: grid; place-items: center; overflow: hidden; flex-shrink: 0; border-radius: 50%; background: #e8c678; color: #5a4821; font-size: 13px; font-weight: 700; }.photo-button, .remove-photo { border: 1px solid #e3e8e3; border-radius: 6px; background: #fff; color: #60736a; padding: 8px 10px; font-size: 10px; font-weight: 700; cursor: pointer; }.photo-button input { display: none; }.remove-photo { border-color: #eaded9; color: #b26a5b; }.profile-panel > label, .profile-fields-row label { display: flex; flex-direction: column; gap: 6px; color: #586c61; font-size: 10px; font-weight: 700; }.profile-panel input, .profile-panel select { height: 35px; border: 1px solid #dce5dc; border-radius: 6px; outline: 0; padding: 0 9px; background: #fff; color: #354a40; font-size: 11px; }.profile-panel input:focus, .profile-panel select:focus { border-color: #c8a24c; box-shadow: 0 0 0 3px rgba(220, 174, 77, .12); }.profile-fields-row { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }.profile-save { width: 100%; margin-top: 2px; }
 @media (max-width: 420px) { .profile-panel { position: fixed; top: 57px; right: 12px; left: 12px; width: auto; } }
+.company-detail-view { max-width: 1410px; margin: 0 auto; padding: 42px 43px 66px; }
+.company-detail-page { display: none; }
+.page-content.companies-page ~ .company-finance-panel,
+.page-content.companies-page ~ .company-history-panel { display: none; }
+.company-detail { display: flex; flex-direction: column; gap: 24px; }
+.company-back { width: fit-content; display: inline-flex; align-items: center; gap: 8px; border: 0; background: transparent; color: #c7d5cb; padding: 0; font-size: 12px; font-weight: 600; }
+.company-back:hover { color: #e9b949; }
+.company-back span { font-size: 17px; }
+.company-detail-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.company-detail-title { display: flex; align-items: center; gap: 15px; min-width: 0; }
+.company-detail-title .company-avatar { width: 46px; height: 46px; flex: 0 0 46px; border-radius: 9px; font-size: 13px; }
+.company-detail-title h1 { margin: 0; color: #edf3ee; font-family: Manrope, sans-serif; font-size: 27px; }
+.company-detail-title .eyebrow { margin-bottom: 5px; }
+.company-detail-title .subtitle { margin-top: 6px; }
+.company-detail-sections { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); align-items: start; gap: 15px; }
+.company-detail-primary { min-width: 0; display: flex; flex-direction: column; gap: 15px; }
+.company-detail-section { min-width: 0; border: 1px solid #30453a; border-radius: 8px; background: #14211f; padding: 21px; }
+.company-detail-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding-bottom: 16px; border-bottom: 1px solid #2b3c34; }
+.company-detail-section-heading .eyebrow { margin-bottom: 6px; }
+.company-detail-section-heading h2 { margin: 0; color: #edf3ee; font-family: Manrope, sans-serif; font-size: 17px; }
+.company-detail-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; margin: 0; }
+.company-detail-fields > div { min-width: 0; padding: 16px 0; border-bottom: 1px solid #263831; }
+.company-detail-fields dt { color: #91a59b; font-size: 11px; }
+.company-detail-fields dd { margin: 6px 0 0; overflow-wrap: anywhere; color: #edf3ee; font-size: 13px; font-weight: 600; }
+.company-detail-finance { display: flex; flex-direction: column; gap: 13px; margin-top: 7px; padding-top: 18px; border-top: 1px solid #2b3c34; }
+.company-detail-finance-heading .eyebrow { margin-bottom: 5px; }
+.company-detail-finance-heading h3 { margin: 0; color: #edf3ee; font-family: Manrope, sans-serif; font-size: 14px; }
+.company-detail-finance-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.company-detail-finance-fields label { display: flex; flex-direction: column; gap: 7px; color: #91a59b; font-size: 11px; }
+.company-detail-finance-fields input { width: 100%; min-width: 0; height: 38px; border: 1px solid #3a5043; border-radius: 6px; outline: 0; background: #1e3027; color: #edf3ee; padding: 0 10px; font-size: 12px; }
+.company-detail-finance-fields input:focus { border-color: #c8a24c; box-shadow: 0 0 0 3px rgba(220, 174, 77, .12); }
+.company-detail-finance-actions, .company-detail-activity-tools { display: flex; align-items: center; gap: 10px; }
+.company-detail-finance-actions > span { color: #91a59b; font-size: 10px; }
+.company-detail-activity-tools .company-report-actions { margin: 0; }
+.company-detail-activity-tools .company-report-actions .company-clear-activity { border-color: #70413d; background: #30211f; color: #e7a49b; }
+.company-detail-activity-tools .company-report-actions .company-clear-activity:hover { border-color: #a65a50; background: #3a2421; color: #ffd0c8; }
+.company-activity-count { min-width: 25px; border-radius: 12px; background: #263b34; color: #d6dfd9; padding: 5px 8px; font-size: 10px; text-align: center; }
+.company-detail-activity { height: 640px; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; padding-right: 8px; scrollbar-color: #53695b #14211f; scrollbar-width: thin; }
+.company-detail-activity-item { height: 64px; min-height: 64px; flex: 0 0 64px; display: flex; flex-direction: column; justify-content: center; overflow: hidden; padding: 7px 0; border-bottom: 1px solid #263831; }
+.company-detail-activity-item:last-child { border-bottom: 0; }
+.company-detail-activity-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.company-detail-activity-heading strong { color: #edf3ee; font-size: 12px; }
+.company-detail-activity-heading time { flex: 0 0 auto; color: #91a59b; font-size: 10px; }
+.company-detail-activity-item p { min-width: 0; display: flex; flex-wrap: nowrap; align-items: center; gap: 9px; overflow: hidden; margin: 6px 0 0; color: #afc0b5; font-size: 11px; white-space: nowrap; }
+.company-detail-activity-item p strong { color: #e9b949; font-weight: 600; }
+.company-detail-activity-item p > span:first-child, .company-detail-activity-item p > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.company-detail-empty { padding: 22px 0 5px; color: #91a59b; font-size: 12px; }
+.company-notes-form { display: flex; flex-direction: column; gap: 12px; padding-top: 17px; }
+.company-notes-form label { display: flex; flex-direction: column; gap: 7px; color: #91a59b; font-size: 11px; }
+.company-notes-form textarea { width: 100%; min-height: 150px; resize: vertical; border: 1px solid #3a5043; border-radius: 6px; outline: 0; background: #1e3027; color: #edf3ee; padding: 11px 12px; font: inherit; font-size: 12px; line-height: 1.55; }
+.company-notes-form textarea::placeholder { color: #72877b; }
+.company-notes-form textarea:focus { border-color: #c8a24c; box-shadow: 0 0 0 3px rgba(220, 174, 77, .12); }
+.company-notes-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.company-notes-actions > span { color: #91a59b; font-size: 10px; }
+.table-card .row-more { min-width: 75px; border: 1px solid #3a5043; border-radius: 6px; background: #1e3027; color: #e9b949; padding: 7px 10px; font-size: 0; letter-spacing: 0; }
+.table-card .row-more::after { content: 'Ver mais'; font-size: 11px; font-weight: 700; }
+@media (max-width: 1050px) { .company-detail-view { padding-left: 28px; padding-right: 28px; }.company-detail-sections { grid-template-columns: 1fr; } }
+@media (max-width: 720px) { .company-detail-view { padding: 28px 18px 45px; }.company-detail-heading { align-items: flex-start; flex-direction: column; }.company-detail-heading > button { width: 100%; }.company-detail-title h1 { font-size: 22px; }.company-detail-section { padding: 17px; }.company-detail-fields, .company-detail-finance-fields { grid-template-columns: 1fr; }.company-detail-fields > div { padding: 13px 0; }.company-detail-section-heading { align-items: flex-start; flex-direction: column; }.company-detail-activity-tools { width: 100%; justify-content: space-between; } }
 .reports-page .placeholder-page { display: none; }.report-panel { max-width: 1410px; margin: 0 auto; padding: 0 43px 66px; }.report-heading h1 { margin: 0; color: #1e302c; font-family: Manrope, sans-serif; font-size: 31px; letter-spacing: -1.2px; }.report-heading .subtitle { max-width: 500px; }.report-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px; margin-top: 30px; }.report-card { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: start; border: 1px solid #e4eae4; border-radius: 9px; background: #fff; padding: 22px; }.report-card-icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; background: #eaf1e9; color: #52745e; font-size: 20px; }.report-card-icon.blue { background: #e4eff4; color: #5c86a1; }.report-card h2 { margin: 1px 0 0; color: #263a33; font-family: Manrope, sans-serif; font-size: 17px; }.report-card p { margin: 7px 0 0; color: #8b9b94; font-size: 11px; line-height: 1.45; }.report-actions { grid-column: 2; display: flex; gap: 7px; margin-top: 12px; }.report-actions button { border: 1px solid #e3e8e3; border-radius: 6px; background: #fff; color: #60736a; padding: 8px 13px; font-size: 10px; font-weight: 700; cursor: pointer; }.report-actions button:hover { border-color: #d9b459; background: #fffcf5; color: #9f7420; }
 @media (max-width: 1050px) { .report-panel { padding-left: 28px; padding-right: 28px; } }
 @media (max-width: 720px) { .report-panel { padding: 0 18px 45px; }.report-cards { grid-template-columns: 1fr; } }

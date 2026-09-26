@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto'
+import { promisify } from 'node:util'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { createApiServer } from './index.mjs'
+import { resetAccountPassword } from './reset-password.mjs'
+import { createStore } from './store.mjs'
+
+const deriveKey = promisify(scryptCallback)
 
 test('owner account uses a salted password hash and authenticates through a session', async () => {
   const dataDirectory = await mkdtemp(path.join(tmpdir(), 'crm-accounts-'))
@@ -99,6 +105,12 @@ test('owner account uses a salted password hash and authenticates through a sess
       }),
     })
     assert.equal(importResponse.status, 201)
+    const companyNotesResponse = await fetch(`${baseUrl}/api/data/prospects`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ upsert: [{ id: 1, company: 'Empresa Persistida', notes: 'Prefere reuniões pela manhã.' }], delete: [] }),
+    })
+    assert.equal(companyNotesResponse.status, 200)
     const persistResponse = await fetch(`${baseUrl}/api/data/leads`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Cookie: collaboratorCookie },
@@ -107,6 +119,7 @@ test('owner account uses a salted password hash and authenticates through a sess
     assert.equal(persistResponse.status, 200)
     const storedWorkspace = await (await fetch(`${baseUrl}/api/data`, { headers: { Cookie: cookie } })).json()
     assert.equal(storedWorkspace.prospects[0].company, 'Empresa Persistida')
+    assert.equal(storedWorkspace.prospects[0].notes, 'Prefere reuniões pela manhã.')
     assert.deepEqual(storedWorkspace.leads.map((lead) => lead.id), [2, 3])
     assert.equal(storedWorkspace.companyChanges[0].id, 10.5)
 
@@ -189,6 +202,54 @@ test('production requires explicit setup secrets and marks session cookies Secur
       if (value === undefined) delete process.env[key]
       else process.env[key] = value
     }
+    await rm(dataDirectory, { recursive: true, force: true })
+  }
+})
+
+test('local password recovery updates the hash and revokes existing sessions', async () => {
+  const dataDirectory = await mkdtemp(path.join(tmpdir(), 'crm-password-reset-'))
+  const account = { id: 123, email: 'admin@example.com', passwordSalt: randomBytes(16).toString('hex'), passwordHash: randomBytes(64).toString('hex') }
+  const existingSessionToken = 'sensitive-session-token'
+  const sessionHash = createHash('sha256').update(existingSessionToken).digest('hex')
+
+  try {
+    await writeFile(path.join(dataDirectory, 'accounts.json'), JSON.stringify([account]))
+    const initialStore = createStore(dataDirectory)
+    initialStore.createSession(sessionHash, account.id, Date.now() + 60_000)
+    initialStore.close()
+
+    const newPassword = 'New-Admin-Password-482!'
+    await resetAccountPassword({ dataDirectory, email: account.email, password: newPassword })
+    const updatedAccount = JSON.parse(await readFile(path.join(dataDirectory, 'accounts.json'), 'utf8'))[0]
+    const actualHash = await deriveKey(newPassword, Buffer.from(updatedAccount.passwordSalt, 'hex'), 64)
+    const expectedHash = Buffer.from(updatedAccount.passwordHash, 'hex')
+    assert.equal(expectedHash.length, actualHash.length)
+    assert.equal(timingSafeEqual(expectedHash, actualHash), true)
+
+    const updatedStore = createStore(dataDirectory)
+    assert.equal(updatedStore.getSession(sessionHash), undefined)
+    updatedStore.close()
+    await assert.rejects(resetAccountPassword({ dataDirectory, email: account.email, password: 'short' }), /12 e 1024/)
+  } finally {
+    await rm(dataDirectory, { recursive: true, force: true })
+  }
+})
+
+test('saving a workspace name prevents later legacy import from replacing it', async () => {
+  const dataDirectory = await mkdtemp(path.join(tmpdir(), 'crm-workspace-name-'))
+
+  try {
+    let store = createStore(dataDirectory)
+    store.setWorkspaceName('NewType')
+    store.close()
+
+    store = createStore(dataDirectory)
+    assert.equal(store.getWorkspace().workspaceName, 'NewType')
+    assert.equal(store.getWorkspace().initialized, true)
+    assert.equal(store.importWorkspace({ prospects: [], leads: [], followUps: [], companyChanges: [], workspaceName: 'Agência Aurora' }), false)
+    assert.equal(store.getWorkspace().workspaceName, 'NewType')
+    store.close()
+  } finally {
     await rm(dataDirectory, { recursive: true, force: true })
   }
 })

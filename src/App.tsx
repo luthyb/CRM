@@ -10,6 +10,7 @@ type Prospect = {
   sector: string
   content: boolean
   media: boolean
+  notes?: string
   createdAt: string
 }
 
@@ -95,11 +96,12 @@ type CompanyChange = {
   newValue: string
   changedAt: string
 }
-type NavPage = 'overview' | 'companies' | 'leads' | 'pipeline' | 'followups' | 'reports' | 'settings'
+type NavPage = 'overview' | 'companies' | 'company-detail' | 'leads' | 'pipeline' | 'followups' | 'reports' | 'settings'
 
 const pageInfo: Record<NavPage, { label: string; group: string; description: string }> = {
   overview: { label: 'Visão geral', group: 'Operação', description: 'Aqui está o panorama dos seus potenciais clientes.' },
   companies: { label: 'Empresas', group: 'Operação', description: 'Gerencie e qualifique seus potenciais clientes.' },
+  'company-detail': { label: 'Detalhes da empresa', group: 'Operação', description: 'Informações e histórico da empresa.' },
   leads: { label: 'Leads', group: 'Operação', description: 'Cadastre e organize novos potenciais clientes.' },
   pipeline: { label: 'Pipeline', group: 'Operação', description: 'Acompanhe as oportunidades por etapa.' },
   followups: { label: 'Follow-ups', group: 'Operação', description: 'Organize os próximos contatos da sua operação.' },
@@ -115,7 +117,7 @@ const initialProspects: Prospect[] = [
   { id: 5, company: 'Vitta Pet', owner: 'Carolina Freire', revenue: 410000, sector: 'Pet', content: false, media: false, createdAt: '2026-09-12' },
 ]
 
-const emptyForm: ProspectForm = { company: '', owner: '', revenue: 0, clientValue: 0, weeklyMediaInvestment: 0, sector: '', content: false, media: false }
+const emptyForm: ProspectForm = { company: '', owner: '', revenue: 0, clientValue: 0, weeklyMediaInvestment: 0, sector: '', content: false, media: false, notes: '' }
 const emptyLeadForm: LeadForm = { company: '', email: '', phone: '', sector: '', location: '', source: '', owner: '', nextContact: '', notes: '', tags: [], priority: 'Média', status: 'Novo' }
 const ownerAccount = { name: 'Luthyb', email: 'lucasthyagootk@gmail.com' }
 const defaultProfile: UserProfile = { name: ownerAccount.name, role: 'Administrador', email: ownerAccount.email, status: 'Disponível', timezone: 'Brasília (GMT-3)', photo: '' }
@@ -180,6 +182,60 @@ function AuthScreen({ mode, name, email, password, bootstrapToken, error, messag
   )
 }
 
+function CompanyDetailPage({ company, changes, financeValue, financeMedia, financeSavedAt, onBack, onEdit, onFinanceValueChange, onFinanceMediaChange, onSaveFinance, onSaveNotes, onClearActivity, onDownloadReport }: { company: Prospect; changes: CompanyChange[]; financeValue: number; financeMedia: number; financeSavedAt: number | null; onBack: () => void; onEdit: () => void; onFinanceValueChange: (value: number) => void; onFinanceMediaChange: (value: number) => void; onSaveFinance: (event: FormEvent) => void; onSaveNotes: (notes: string) => void; onClearActivity: () => void; onDownloadReport: (format: 'csv' | 'excel' | 'pdf') => void }) {
+  const [notesDraft, setNotesDraft] = useState(company.notes || '')
+  const [notesSavedAt, setNotesSavedAt] = useState<number | null>(null)
+  const activities = [
+    { id: `created-${company.id}`, field: 'Empresa cadastrada', previousValue: '', newValue: company.company, changedAt: company.createdAt },
+    ...changes.map((change) => ({ ...change, id: String(change.id) })),
+  ].sort((first, second) => new Date(second.changedAt).getTime() - new Date(first.changedAt).getTime())
+
+  return (
+    <section className="company-detail">
+      <button className="company-back" type="button" onClick={onBack}><span aria-hidden="true">←</span> Voltar para empresas</button>
+      <header className="company-detail-heading">
+        <div className="company-detail-title"><span className="company-avatar">{initials(company.company)}</span><div><p className="eyebrow">EMPRESA</p><h1>{company.company}</h1><p className="subtitle">{company.sector} · Cadastrada em {new Intl.DateTimeFormat('pt-BR').format(new Date(`${company.createdAt.slice(0, 10)}T12:00:00`))}</p></div></div>
+        <button className="secondary-button" type="button" onClick={onEdit}>Editar empresa</button>
+      </header>
+      <div className="company-detail-sections">
+        <div className="company-detail-primary">
+        <section className="company-detail-section" aria-labelledby="company-information-title">
+          <div className="company-detail-section-heading"><div><p className="eyebrow">CADASTRO</p><h2 id="company-information-title">Informações da empresa</h2></div></div>
+          <dl className="company-detail-fields">
+            <div><dt>Responsável</dt><dd>{company.owner || 'Não informado'}</dd></div>
+            <div><dt>Nicho / setor</dt><dd>{company.sector || 'Não informado'}</dd></div>
+            <div><dt>Faturamento anual</dt><dd>{formatCurrency(company.revenue)}</dd></div>
+            <div><dt>Valor que paga</dt><dd>{formatCurrency(company.clientValue || 0)}</dd></div>
+            <div><dt>Investimento semanal em mídia</dt><dd>{formatCurrency(company.weeklyMediaInvestment || 0)}</dd></div>
+            <div><dt>Produz conteúdo</dt><dd>{company.content ? 'Sim' : 'Não'}</dd></div>
+            <div><dt>Compra mídia</dt><dd>{company.media ? 'Sim' : 'Não'}</dd></div>
+          </dl>
+          <form className="company-detail-finance" onSubmit={onSaveFinance}>
+            <div className="company-detail-finance-heading"><div><p className="eyebrow">VALORES</p><h3>Investimento e contrato</h3></div></div>
+            <div className="company-detail-finance-fields">
+              <label>Valor que paga<input type="number" min="0" value={financeValue || ''} onChange={(event) => onFinanceValueChange(Number(event.target.value))} placeholder="R$ 0" /></label>
+              <label>Mídia por semana<input type="number" min="0" value={financeMedia || ''} onChange={(event) => onFinanceMediaChange(Number(event.target.value))} placeholder="R$ 0" /></label>
+            </div>
+            <div className="company-detail-finance-actions"><button className="primary-button" type="submit">Salvar valores</button>{financeSavedAt && <span>Salvo às {new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(financeSavedAt)}</span>}</div>
+          </form>
+        </section>
+        <section className="company-detail-section company-notes-section" aria-labelledby="company-notes-title">
+          <div className="company-detail-section-heading"><div><p className="eyebrow">ANOTAÇÕES</p><h2 id="company-notes-title">Informações adicionais</h2></div></div>
+          <form className="company-notes-form" onSubmit={(event) => { event.preventDefault(); onSaveNotes(notesDraft); setNotesSavedAt(Date.now()) }}>
+            <label htmlFor="company-notes">Anotações da empresa<textarea id="company-notes" maxLength={5000} value={notesDraft} onChange={(event) => setNotesDraft(event.target.value)} placeholder="Anote contexto, necessidades, preferências ou informações importantes sobre esta empresa..." /></label>
+            <div className="company-notes-actions"><span>{notesDraft.length}/5000 caracteres{notesSavedAt && ` · Salvo às ${new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(notesSavedAt)}`}</span><button className="primary-button" type="submit">Salvar informações</button></div>
+          </form>
+        </section>
+        </div>
+        <section className="company-detail-section" aria-labelledby="company-activity-title">
+          <div className="company-detail-section-heading"><div><p className="eyebrow">ATIVIDADE</p><h2 id="company-activity-title">Histórico e logs</h2></div><div className="company-detail-activity-tools"><span className="company-activity-count">{activities.length}</span><div className="company-report-actions">{changes.length > 0 && <button className="company-clear-activity" type="button" onClick={onClearActivity}>Limpar</button>}<button type="button" onClick={() => onDownloadReport('csv')}>CSV</button><button type="button" onClick={() => onDownloadReport('excel')}>Excel</button><button type="button" onClick={() => onDownloadReport('pdf')}>PDF</button></div></div></div>
+          {activities.length > 0 ? <div className="company-detail-activity">{activities.map((activity) => <article className="company-detail-activity-item" key={activity.id}><div className="company-detail-activity-heading"><strong>{activity.field}</strong><time dateTime={activity.changedAt}>{new Intl.DateTimeFormat('pt-BR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(activity.changedAt))}</time></div>{activity.previousValue && <p><span>{activity.previousValue}</span><span aria-hidden="true">→</span><strong>{activity.newValue}</strong></p>}</article>)}</div> : <div className="company-detail-empty">Nenhum registro de atividade.</div>}
+        </section>
+      </div>
+    </section>
+  )
+}
+
 function App() {
   const [prospects, setProspects] = useState<Prospect[]>(initialProspects)
   const [query, setQuery] = useState('')
@@ -189,6 +245,7 @@ function App() {
   const [form, setForm] = useState<ProspectForm>(emptyForm)
   const [activePage, setActivePage] = useState<NavPage>('overview')
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [selectedCompanyId, setSelectedCompanyId] = useState<number | null>(null)
   const [leads, setLeads] = useState<Lead[]>([])
   const [leadForm, setLeadForm] = useState<LeadForm>(emptyLeadForm)
   const [leadQuery, setLeadQuery] = useState('')
@@ -203,6 +260,7 @@ function App() {
   const [workspaceName, setWorkspaceName] = useState('Agência Aurora')
   const [users, setUsers] = useState<UserAccount[]>([])
   const [sessionUserId, setSessionUserId] = useState<number | null>(null)
+  const [hasUsers, setHasUsers] = useState(false)
   const [authMode, setAuthMode] = useState<AuthMode>('register')
   const [authName, setAuthName] = useState(ownerAccount.name)
   const [authEmail, setAuthEmail] = useState(ownerAccount.email)
@@ -266,6 +324,7 @@ function App() {
     void apiRequest<{ user: UserAccount | null; users: UserAccount[]; hasUsers: boolean }>('/api/auth/session')
       .then(async (session) => {
         setUsers(session.users)
+        setHasUsers(session.hasUsers)
         setAuthMode(session.hasUsers ? 'login' : 'register')
         if (session.user) {
           await loadWorkspace(session.user)
@@ -296,6 +355,7 @@ function App() {
       ['sector', 'Nicho / setor', (value) => String(value)],
       ['content', 'Produz conteúdo?', (value) => value ? 'Sim' : 'Não'],
       ['media', 'Compra mídia?', (value) => value ? 'Sim' : 'Não'],
+      ['notes', 'Anotações', (value) => String(value ?? '')],
     ]
     const changes = fields.filter(([field]) => before[field] !== after[field]).map(([field, label, format]) => ({ id: Date.now() + Math.random(), companyId: after.id, company: after.company, field: label, previousValue: format(before[field]), newValue: format(after[field]), changedAt: new Date().toISOString() }))
     if (changes.length > 0) saveCompanyChanges([...changes, ...companyChanges])
@@ -423,6 +483,16 @@ function App() {
   }
 
   const openEdit = (prospect: Prospect) => {
+    setSelectedCompanyId(prospect.id)
+    setFinancialCompanyId(prospect.id)
+    setFinancialValue(prospect.clientValue || 0)
+    setFinancialMedia(prospect.weeklyMediaInvestment || 0)
+    setFinanceSavedAt(null)
+    setActivePage('company-detail')
+    setDrawerOpen(false)
+  }
+
+  const startEditingCompany = (prospect: Prospect) => {
     setEditingId(prospect.id)
     setForm({ company: prospect.company, owner: prospect.owner, revenue: prospect.revenue, clientValue: prospect.clientValue || 0, weeklyMediaInvestment: prospect.weeklyMediaInvestment || 0, sector: prospect.sector, content: prospect.content, media: prospect.media })
     setConfirmDelete(false)
@@ -560,6 +630,7 @@ function App() {
         body: JSON.stringify({ name: authName.trim(), email: authEmail.trim().toLowerCase(), password: authPassword, bootstrapToken }),
       })
       setUsers(result.users)
+      setHasUsers(true)
       await loadWorkspace(result.user)
       startSession(result.user)
     } catch (error) {
@@ -694,6 +765,24 @@ function App() {
     setFinanceSavedAt(Date.now())
   }
 
+  const saveCompanyNotes = (companyId: number, notes: string) => {
+    const current = prospects.find((prospect) => prospect.id === companyId)
+    if (!current || current.notes === notes) return
+    const updated = prospects.map((prospect) => prospect.id === companyId ? { ...prospect, notes } : prospect)
+    saveProspects(updated)
+    const nextCompany = updated.find((prospect) => prospect.id === companyId)
+    if (nextCompany) recordCompanyChanges(current, nextCompany)
+  }
+
+  const clearCompanyActivity = (companyId: number) => {
+    const company = prospects.find((prospect) => prospect.id === companyId)
+    const companyLogIds = new Set(companyChanges.filter((change) => change.companyId === companyId).map((change) => change.id))
+    if (companyLogIds.size === 0) return
+    const logLabel = companyLogIds.size === 1 ? 'alteração' : 'alterações'
+    if (!window.confirm(`Limpar ${companyLogIds.size} ${logLabel} de ${company?.company || 'esta empresa'}? O registro de cadastro será mantido.`)) return
+    saveCompanyChanges(companyChanges.filter((change) => !companyLogIds.has(change.id)))
+  }
+
   const selectFinancialCompany = (id: number) => {
     const prospect = prospects.find((item) => item.id === id)
     setFinancialCompanyId(id)
@@ -713,6 +802,7 @@ function App() {
   const pipelineLeads = leads.filter((lead) => lead.nextContact)
   const selectedFinancialCompany = prospects.find((prospect) => prospect.id === financialCompanyId)
   const selectedCompanyChanges = companyChanges.filter((change) => change.companyId === financialCompanyId)
+  const selectedCompany = prospects.find((prospect) => prospect.id === selectedCompanyId)
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
@@ -738,7 +828,7 @@ function App() {
 
   const currentPage = pageInfo[activePage]
   if (!sessionReady) return <main className="auth-shell" aria-busy="true" />
-  if (!currentUser) return <AuthScreen mode={authMode} name={authName} email={authEmail} password={authPassword} bootstrapToken={bootstrapToken} error={authError} message={authMessage} hasUsers={users.length > 0} onModeChange={(mode) => { setAuthMode(mode); setAuthError(''); setAuthMessage('') }} onSubmit={handleAuthSubmit} onNameChange={setAuthName} onEmailChange={setAuthEmail} onPasswordChange={setAuthPassword} onBootstrapTokenChange={setBootstrapToken} />
+  if (!currentUser) return <AuthScreen mode={authMode} name={authName} email={authEmail} password={authPassword} bootstrapToken={bootstrapToken} error={authError} message={authMessage} hasUsers={hasUsers} onModeChange={(mode) => { setAuthMode(mode); setAuthError(''); setAuthMessage('') }} onSubmit={handleAuthSubmit} onNameChange={setAuthName} onEmailChange={setAuthEmail} onPasswordChange={setAuthPassword} onBootstrapTokenChange={setBootstrapToken} />
 
   return (
     <div className={`app-shell ${canManageWorkspace ? 'administrator-access' : 'collaborator-access'}`}>
@@ -750,7 +840,7 @@ function App() {
         <nav className="main-nav" aria-label="Navegação principal">
           <p className="nav-label">Operação</p>
           <button className={`nav-item ${activePage === 'overview' ? 'active' : ''}`} onClick={() => navigateTo('overview')} aria-current={activePage === 'overview' ? 'page' : undefined}><span>◈</span> Visão geral</button>
-          <button className={`nav-item ${activePage === 'companies' ? 'active' : ''}`} onClick={() => navigateTo('companies')} aria-current={activePage === 'companies' ? 'page' : undefined}><span>◎</span> Empresas <b>{prospects.length}</b></button>
+          <button className={`nav-item ${activePage === 'companies' || activePage === 'company-detail' ? 'active' : ''}`} onClick={() => navigateTo('companies')} aria-current={activePage === 'companies' || activePage === 'company-detail' ? 'page' : undefined}><span>◎</span> Empresas <b>{prospects.length}</b></button>
           <button className={`nav-item ${activePage === 'leads' ? 'active' : ''}`} onClick={() => navigateTo('leads')} aria-current={activePage === 'leads' ? 'page' : undefined}><span>＋</span> Leads <b>{leads.length}</b></button>
           <button className={`nav-item ${activePage === 'pipeline' ? 'active' : ''}`} onClick={() => navigateTo('pipeline')} aria-current={activePage === 'pipeline' ? 'page' : undefined}><span>◇</span> Pipeline</button>
           <button className={`nav-item ${activePage === 'followups' ? 'active' : ''}`} onClick={() => navigateTo('followups')} aria-current={activePage === 'followups' ? 'page' : undefined}><span>◷</span> Follow-ups <b className="alert-count">4</b></button>
@@ -763,7 +853,8 @@ function App() {
 
       <main className="main-content">
         <header className="topbar"><div className="breadcrumbs"><span>{currentPage.group}</span><b>/</b><strong>{currentPage.label}</strong></div><div className="top-actions"><button className="icon-button" title="Notificações" aria-label="Abrir notificações" aria-expanded={notificationsOpen} onClick={() => { setNotificationsOpen(!notificationsOpen); setProfileOpen(false) }}>♢{notifications.length > 0 && <i />}</button><button className="top-avatar" type="button" onClick={openProfile} aria-label="Abrir configurações do perfil">{profile.photo ? <img src={profile.photo} alt="" /> : initials(profile.name)}</button>{notificationsOpen && <div className="notification-panel"><div className="notification-heading"><div><strong>Notificações</strong><span>{notifications.length > 0 ? `${notifications.length} pendência${notifications.length > 1 ? 's' : ''}` : 'Tudo em dia'}</span></div><button type="button" onClick={() => setNotificationsOpen(false)} aria-label="Fechar notificações">×</button></div><div className="notification-list">{notifications.length > 0 ? notifications.map((notification) => <button className="notification-item" type="button" key={notification.id} onClick={() => navigateTo('pipeline')}><span className="notification-dot" /><span><strong>{notification.title}</strong><small>{notification.detail}</small></span></button>) : <div className="notification-empty"><span>✓</span><strong>Nenhuma pendência</strong><small>Você está em dia com os contatos.</small></div>}</div></div>}{profileOpen && <form className="profile-panel" onSubmit={saveProfile}><div className="profile-panel-heading"><div><strong>Meu perfil</strong><span>Personalize como você aparece no workspace.</span></div><button type="button" onClick={() => setProfileOpen(false)} aria-label="Fechar perfil">×</button></div><div className="profile-photo-row"><span className="profile-panel-avatar">{profileDraft.photo ? <img src={profileDraft.photo} alt="Prévia da foto" /> : initials(profileDraft.name)}</span><label className="photo-button">Trocar foto<input type="file" accept="image/*" onChange={handleProfilePhoto} /></label>{profileDraft.photo && <button type="button" className="remove-photo" onClick={() => setProfileDraft({ ...profileDraft, photo: '' })}>Remover</button>}</div><label>Nome exibido<input required value={profileDraft.name} onChange={(event) => setProfileDraft({ ...profileDraft, name: event.target.value })} /></label><label>Cargo<input value={profileDraft.role} onChange={(event) => setProfileDraft({ ...profileDraft, role: event.target.value })} placeholder="Ex.: Administrador" /></label><label>E-mail<input type="email" value={profileDraft.email} onChange={(event) => setProfileDraft({ ...profileDraft, email: event.target.value })} placeholder="seu@email.com" /></label><div className="profile-fields-row"><label>Status<select value={profileDraft.status} onChange={(event) => setProfileDraft({ ...profileDraft, status: event.target.value })}><option>Disponível</option><option>Ausente</option><option>Ocupado</option></select></label><label>Fuso horário<select value={profileDraft.timezone} onChange={(event) => setProfileDraft({ ...profileDraft, timezone: event.target.value })}><option>Brasília (GMT-3)</option><option>Fernando de Noronha (GMT-2)</option><option>Amazonas (GMT-4)</option></select></label></div><button className="primary-button profile-save" type="submit">Salvar perfil</button></form>}</div></header>
-        <div className={`page-content ${activePage === 'companies' ? 'companies-page' : ''} ${activePage === 'reports' ? 'reports-page' : ''} ${activePage === 'settings' ? 'settings-page' : ''}`}>
+        {activePage === 'company-detail' && <div className="company-detail-view">{selectedCompany ? <CompanyDetailPage key={selectedCompany.id} company={selectedCompany} changes={companyChanges.filter((change) => change.companyId === selectedCompany.id)} financeValue={financialValue} financeMedia={financialMedia} financeSavedAt={financeSavedAt} onBack={() => navigateTo('companies')} onEdit={() => startEditingCompany(selectedCompany)} onFinanceValueChange={setFinancialValue} onFinanceMediaChange={setFinancialMedia} onSaveFinance={saveCompanyFinance} onSaveNotes={(notes) => saveCompanyNotes(selectedCompany.id, notes)} onClearActivity={() => clearCompanyActivity(selectedCompany.id)} onDownloadReport={(format) => downloadCompanyReport(selectedCompany, format)} /> : <section className="company-detail"><button className="company-back" type="button" onClick={() => navigateTo('companies')}>← Voltar para empresas</button><div className="empty-state"><strong>Empresa não encontrada</strong><span>Ela pode ter sido removida da base.</span></div></section>}</div>}
+        <div className={`page-content ${activePage === 'companies' ? 'companies-page' : ''} ${activePage === 'company-detail' ? 'company-detail-page' : ''} ${activePage === 'reports' ? 'reports-page' : ''} ${activePage === 'settings' ? 'settings-page' : ''}`}>
           {activePage === 'overview' || activePage === 'companies' ? <>
           <section className="welcome"><div><p className="eyebrow">QUARTA-FEIRA, 25 DE SETEMBRO DE 2026</p><h1>Bom dia, Lucas <span>↗</span></h1><p className="subtitle">Aqui está o panorama dos seus potenciais clientes.</p></div><button className="primary-button" onClick={openCreate}><span>＋</span> Nova empresa</button></section>
           <section className="metric-grid" aria-label="Resumo da operação">
